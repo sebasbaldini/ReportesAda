@@ -1,0 +1,183 @@
+<!-- app/templates/reportes.html (MODIFICADO) -->
+{% extends "base.html" %}
+
+{% block title %}Generador de Reportes{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm border-0">
+<div class="card-body p-4 p-md-5">
+
+    <h1 class="h3 mb-3">Generador de Reportes</h1>
+    <p class="text-muted mb-4">Seleccione los filtros para descargar el reporte en formato Excel.</p>
+
+    <form action="{{ url_for('main.download_report') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}"/>
+
+        <!-- (Usamos 'row' y 'col-md-6' para poner los selectores en 2 columnas en escritorio) -->
+        <div class="row g-3">
+            <div class="col-12">
+                <label for="ema_select" class="form-label fw-bold">1. Seleccione una EMA:</label>
+                <!-- (Usamos 'form-select' para los <select>) -->
+                <select id="ema_select" name="ema_id" class="form-select form-select-lg" required 
+                        data-sensors-url="{{ url_for('main.get_sensors_for_ema', ema_id='temp-id') }}">
+                    <option value="" disabled selected>-- Seleccione una EMA --</option>
+                    {% for ema_id, display_text in emas_list %}
+                        <option value="{{ ema_id }}">{{ display_text }}</option>
+                    {% endfor %}
+                    <option value="todas">-- TODAS LAS EMAs --</option>
+                </select>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label fw-bold">2. Seleccione Sensor(es) y Procesamiento:</label>
+                <!-- (El JS llenará este contenedor) -->
+                <div id="sensor-container" class="vstack gap-2"> 
+                    <p id="sensor-placeholder" class="text-muted">Por favor, seleccione una EMA primero.</p>
+                </div>
+                <button type="button" id="add-sensor-btn" class="btn btn-outline-success btn-sm mt-2" style="display: none;">
+                    <i class="bi bi-plus-circle"></i> Agregar otro sensor
+                </button>
+            </div>
+            
+            <div class="col-md-6">
+                <label for="fecha_inicio" class="form-label fw-bold">3. Fecha de INICIO:</label>
+                <!-- (Usamos 'form-control' para los <input>) -->
+                <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label for="fecha_fin" class="form-label fw-bold">4. Fecha de FIN:</label>
+                <input type="date" id="fecha_fin" name="fecha_fin" class="form-control" required>
+            </div>
+
+            <div class="col-12 mt-4">
+                <button type="submit" class="btn btn-primary btn-lg w-100">
+                    <i class="bi bi-download"></i> Generar y Descargar Reporte (Excel)
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+</div>
+
+<!-- === JAVASCRIPT (MODIFICADO) === -->
+<script>
+    let currentSensorList = [];
+
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        const emaSelect = document.getElementById('ema_select');
+        const sensorContainer = document.getElementById('sensor-container');
+        const sensorPlaceholder = document.getElementById('sensor-placeholder');
+        const addSensorBtn = document.getElementById('add-sensor-btn');
+
+        // --- MODIFICADO: addSensorRow (para que cree clases de Bootstrap) ---
+        function addSensorRow() {
+            // Usamos 'input-group' de Bootstrap
+            const row = document.createElement('div');
+            row.className = 'input-group sensor-row'; // 'input-group' es la clase clave
+
+            const sensorSelect = document.createElement('select');
+            sensorSelect.name = 'sensor_info';
+            sensorSelect.className = 'form-select'; // <- Clase de Bootstrap
+            sensorSelect.required = true;
+
+            const processSelect = document.createElement('select');
+            processSelect.name = 'process_type';
+            processSelect.className = 'form-select'; // <- Clase de Bootstrap
+            processSelect.required = true;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-outline-danger'; // <- Clase de Bootstrap
+            removeBtn.innerHTML = '<i class="bi bi-trash"></i>'; // Ícono
+            removeBtn.addEventListener('click', function() { row.remove(); });
+
+            sensorSelect.innerHTML = '<option value="" disabled selected>-- Seleccione un sensor --</option>';
+            currentSensorList.forEach(sensor => {
+                const option = document.createElement('option'); 
+                option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
+                option.dataset.searchText = sensor.search_text; 
+                option.textContent = sensor.nombre;
+                sensorSelect.appendChild(option);
+            });
+
+            // (Lógica interna para 'actualizarOpcionesDeProceso' - sin cambios)
+            function actualizarOpcionesDeProceso(selectedOption) {
+                const searchText = selectedOption ? (selectedOption.dataset.searchText || "") : "";
+                processSelect.innerHTML = ''; 
+                if (searchText.includes('pluvio')) {
+                    processSelect.innerHTML += '<option value="raw">Dato Crudo</option>';
+                    processSelect.innerHTML += '<option value="sum_hourly">Acumulado por Hora</option>'; 
+                    processSelect.innerHTML += '<option value="pluvio_sum">Acumulado Diario</option>';
+                } else if (searchText.includes('limni') || searchText.includes('freati')) {
+                    processSelect.innerHTML += '<option value="raw">Dato Crudo</option>';
+                    processSelect.innerHTML += '<option value="max_hourly">Máximo por Hora</option>'; 
+                    processSelect.innerHTML += '<option value="nivel_max">Máximo Diario</option>';
+                } else {
+                    processSelect.innerHTML += '<option value="raw" selected>Dato Crudo</option>';
+                    processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>'; 
+                }
+            }
+
+            sensorSelect.addEventListener('change', function() {
+                const selectedOption = this.options[this.selectedIndex];
+                actualizarOpcionesDeProceso(selectedOption);
+            });
+            
+            if (sensorSelect.options.length > 1) {
+                 actualizarOpcionesDeProceso(sensorSelect.options[1]);
+                 sensorSelect.value = sensorSelect.options[1].value;
+            } else {
+                 actualizarOpcionesDeProceso(null);
+            }
+            
+            row.appendChild(sensorSelect);
+            row.appendChild(processSelect);
+            row.appendChild(removeBtn);
+            sensorContainer.appendChild(row);
+        }
+
+        // --- Listener del selector de EMA (MODIFICADO para ocultar placeholder) ---
+        emaSelect.addEventListener('change', function() {
+            const selectedEmaId = this.value.trim();
+            sensorContainer.innerHTML = ''; // Limpiar todo (incluido el placeholder)
+            addSensorBtn.style.display = 'none'; 
+            currentSensorList = [];
+            
+            if (!selectedEmaId) {
+                sensorContainer.appendChild(sensorPlaceholder); // Poner el placeholder
+                return;
+            }
+            
+            // Mostrar "Cargando"
+            const loadingP = document.createElement('p');
+            loadingP.textContent = 'Cargando sensores...';
+            sensorContainer.appendChild(loadingP);
+
+            const baseUrl = emaSelect.dataset.sensorsUrl;
+            const urlToFetch = baseUrl.replace('temp-id', encodeURIComponent(selectedEmaId));
+            
+            fetch(urlToFetch) 
+                .then(response => response.json())
+                .then(sensores => {
+                    currentSensorList = sensores; 
+                    sensorContainer.innerHTML = ''; // Limpiar "Cargando..."
+                    if (sensores && sensores.length > 0) {
+                        addSensorRow(); 
+                        addSensorBtn.style.display = 'block'; 
+                    } else {
+                        sensorContainer.innerHTML = '<p class="text-muted">Esta EMA no tiene sensores activos registrados.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al buscar datos de la EMA:', error);
+                    sensorContainer.innerHTML = '<p class="text-danger">Error al cargar sensores.</p>';
+                });
+        });
+        
+        addSensorBtn.addEventListener('click', function() {
+            addSensorRow();
+        });
+    });
+</script>
+{% endblock %}

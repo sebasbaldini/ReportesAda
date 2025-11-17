@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard (Estado Actual) - SIMPARH{% endblock %}
+
+{% block head %}
+    {{ super() }}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+{% endblock %}
+
+
+{% block content %}
+<div class="container">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">Dashboard de Estado Actual</h1>
+        
+        <div class="col-md-5 col-lg-4">
+            <div class="input-group">
+                <span class="input-group-text"><i class="bi bi-station"></i></span>
+                <select id="ema_select_dashboard" class="form-select" aria-label="Seleccionar EMA">
+                    {% for ema_id, display_text in emas_list %}
+                        <option value="{{ ema_id }}" {% if ema_id == selected_ema_id %}selected{% endif %}>
+                            {{ display_text }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div id="dashboard-loader" class="text-center py-5" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Cargando...</span>
+        </div>
+        <p class="mt-2">Cargando datos de la estación...</p>
+    </div>
+
+    <div class="row g-4" id="dashboard-widgets-container">
+        </div>
+</div>
+
+
+<template id="widget-templates">
+    
+    <div class="col-xl-3 col-lg-4 col-md-6" data-widget="temperatura">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center p-4">
+                <div class="widget-icon-bg text-danger-emphasis bg-danger-subtle">
+                    <i class="bi bi-thermometer-half"></i>
+                </div>
+                <div class="ms-3">
+                    <div class="text-muted fs-7">Temperatura</div>
+                    <div class="widget-value fs-3 fw-bold" data-value="valor_str">...</div>
+                    <div class="widget-timestamp fs-7 text-muted" data-value="timestamp">...</div>
+                </div>
+                <div class="widget-gauge-thermo ms-auto">
+                    <div class="progress" role="progressbar" style="height: 100px;" data-min="-10" data-max="50" data-value="valor_num">
+                        <div class="progress-bar bg-danger" style="height: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-lg-4 col-md-6" data-widget="nivel_max_hoy">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center p-4">
+                <div class="widget-icon-bg text-primary-emphasis bg-primary-subtle">
+                    <i class="bi bi-rulers"></i>
+                </div>
+                <div class="ms-3">
+                    <div class="text-muted fs-7">Nivel (Máx. Hoy)</div>
+                    <div class="widget-value fs-3 fw-bold" data-value="valor_str">...</div>
+                    <div class="widget-timestamp fs-7 text-muted" data-value="timestamp">...</div>
+                </div>
+                <div class="widget-gauge-level ms-auto">
+                    <div class="progress" role="progressbar" style="height: 100px;" data-min="0" data-max="5" data-value="valor_num">
+                        <div class="progress-bar bg-primary" style="height: 0%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-lg-4 col-md-6" data-widget="pluvio_sum_hoy">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center p-4">
+                <div class="widget-icon-bg text-info-emphasis bg-info-subtle">
+                    <i class="bi bi-cloud-drizzle-fill"></i>
+                </div>
+                <div class="ms-3">
+                    <div class="text-muted fs-7">Lluvia (Acum. Hoy)</div>
+                    <div class="widget-value fs-3 fw-bold" data-value="valor_str">...</div>
+                    <div class="widget-timestamp fs-7 text-muted" data-value="timestamp">...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-xl-3 col-lg-4 col-md-6" data-widget="viento">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <div class="text-muted fs-7">Viento</div>
+                        <div class="widget-value fs-3 fw-bold" data-value="vel_str">...</div>
+                        <div class="widget-timestamp fs-7 text-muted" data-value="timestamp">...</div>
+                    </div>
+                    <div class="widget-gauge-compass" style="width: 100px; height: 100px;">
+                        <canvas data-value="dir_num" data-label="dir_str"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-lg-4 col-md-6" data-widget="bateria">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center p-4">
+                <div class="widget-icon-bg text-success-emphasis bg-success-subtle">
+                    <i class="bi bi-battery-charging"></i>
+                </div>
+                <div class="ms-3">
+                    <div class="text-muted fs-7">Batería</div>
+                    <div class="widget-value fs-3 fw-bold" data-value="valor_str">...</div>
+                    <div class="widget-timestamp fs-7 text-muted" data-value="timestamp">...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-3 col-lg-4 col-md-6" data-widget="presion">
+        <div class="card h-100 shadow-sm border-0">
+            <div class="card-body d-flex align-items-center p-4">
+                <div class="widget-icon-bg text-secondary-emphasis bg-secondary-subtle">
+                    <i class="bi bi-speedometer2"></i>
+                </div>
+                <div class="ms-3">
+                    <div class="text-muted fs-7">Presión</div>
+                    <div class="widget-value fs-3 fw-bold" data-value="valor_str">...</div>
+                    <div class="widget-timestamp fs-7 text-muted" data-value="timestamp">...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</template>
+
+
+<script>
+    // (Plugins de Chart.js, sin cambios)
+    Chart.register(ChartDataLabels);
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        // --- Referencias (sin cambios) ---
+        const emaSelect = document.getElementById('ema_select_dashboard');
+        const widgetContainer = document.getElementById('dashboard-widgets-container');
+        const loader = document.getElementById('dashboard-loader');
+        const templates = document.getElementById('widget-templates');
+        
+        let compassChart = null; 
+
+        // --- ¡FUNCIÓN 'renderDashboard' MODIFICADA! ---
+        function renderDashboard(data) {
+            widgetContainer.innerHTML = '';
+            if (compassChart) {
+                compassChart.destroy();
+                compassChart = null;
+            }
+            
+            // 1. Widget de Temperatura
+            if (data.temperatura) {
+                const widget = templates.content.querySelector('[data-widget="temperatura"]').cloneNode(true);
+                const d = data.temperatura;
+                widget.querySelector('[data-value="valor_str"]').textContent = d.valor_str;
+                widget.querySelector('[data-value="timestamp"]').textContent = d.timestamp;
+                const bar = widget.querySelector('.progress-bar');
+                const p = widget.querySelector('.progress');
+                const min = parseFloat(p.dataset.min);
+                const max = parseFloat(p.dataset.max);
+                const val = parseFloat(d.valor_num);
+                let percent = (val - min) / (max - min) * 100;
+                if (percent < 0) percent = 0;
+                if (percent > 100) percent = 100;
+                bar.style.height = `${percent}%`;
+                widgetContainer.appendChild(widget);
+            }
+
+            // 2. Widget de Nivel
+            if (data.nivel_max_hoy) {
+                const widget = templates.content.querySelector('[data-widget="nivel_max_hoy"]').cloneNode(true);
+                const d = data.nivel_max_hoy;
+                widget.querySelector('[data-value="valor_str"]').textContent = d.valor_str;
+                widget.querySelector('[data-value="timestamp"]').textContent = d.timestamp;
+                const bar = widget.querySelector('.progress-bar');
+                const p = widget.querySelector('.progress');
+                const min = parseFloat(p.dataset.min);
+                const max = parseFloat(p.dataset.max);
+                const val = parseFloat(d.valor_num);
+                let percent = (val - min) / (max - min) * 100;
+                if (percent < 0) percent = 0;
+                if (percent > 100) percent = 100;
+                bar.style.height = `${percent}%`;
+                widgetContainer.appendChild(widget);
+            }
+
+            // 3. Widget de Lluvia
+            if (data.pluvio_sum_hoy) {
+                const widget = templates.content.querySelector('[data-widget="pluvio_sum_hoy"]').cloneNode(true);
+                const d = data.pluvio_sum_hoy;
+                widget.querySelector('[data-value="valor_str"]').textContent = d.valor_str;
+                widget.querySelector('[data-value="timestamp"]').textContent = d.timestamp;
+                widgetContainer.appendChild(widget);
+            }
+            
+            // 4. Widget de Viento
+            if (data.viento) {
+                const widget = templates.content.querySelector('[data-widget="viento"]').cloneNode(true);
+                const d = data.viento;
+                
+                widget.querySelector('[data-value="vel_str"]').textContent = d.vel_str;
+                widget.querySelector('[data-value="timestamp"]').textContent = d.timestamp;
+                
+                const canvas = widget.querySelector('canvas');
+                const dir_num = d.dir_num;
+                const dir_str = d.dir_str;
+                
+                widgetContainer.appendChild(widget);
+                renderCompassChart(canvas, dir_num, dir_str);
+            }
+
+            // --- ¡NUEVO! ---
+            // 5. Widget de Batería
+            if (data.bateria) {
+                const widget = templates.content.querySelector('[data-widget="bateria"]').cloneNode(true);
+                const d = data.bateria;
+                widget.querySelector('[data-value="valor_str"]').textContent = d.valor_str;
+                widget.querySelector('[data-value="timestamp"]').textContent = d.timestamp;
+                widgetContainer.appendChild(widget);
+            }
+
+            // 6. Widget de Presión
+            if (data.presion) {
+                const widget = templates.content.querySelector('[data-widget="presion"]').cloneNode(true);
+                const d = data.presion;
+                widget.querySelector('[data-value="valor_str"]').textContent = d.valor_str;
+                widget.querySelector('[data-value="timestamp"]').textContent = d.timestamp;
+                widgetContainer.appendChild(widget);
+            }
+        }
+        
+        // --- (Función 'renderCompassChart' - sin cambios) ---
+        function renderCompassChart(canvas, direction, label) {
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            if (compassChart) {
+                compassChart.destroy();
+            }
+            
+            compassChart = new Chart(ctx, { 
+                type: 'doughnut',
+                data: {
+                    labels: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
+                    datasets: [{
+                        data: [1, 1, 1, 1, 1, 1, 1, 1], 
+                        backgroundColor: [
+                            'rgba(220, 53, 69, 0.7)', // N (Rojo)
+                            '#f8f9fa', '#f8f9fa', '#f8f9fa',
+                            '#f8f9fa', '#f8f9fa', '#f8f9fa',
+                            '#f8f9fa'
+                        ],
+                        borderColor: '#dee2e6',
+                        borderWidth: 1,
+                        rotation: -22.5 
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '40%', 
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false },
+                        datalabels: {
+                            color: '#333',
+                            font: { weight: 'bold' },
+                            formatter: (value, context) => context.chart.data.labels[context.dataIndex]
+                        }
+                    },
+                    animation: {
+                        onComplete: (animationContext) => { 
+                            const chart = animationContext.chart; 
+                            if (!chart) return; 
+                            const ctx = chart.ctx; 
+                            const meta = chart.getDatasetMeta(0); 
+                            if (!meta || !meta.controller) return;
+                            const x = (meta.controller.innerRadius + meta.controller.outerRadius) / 2 + meta.controller.x;
+                            const y = (meta.controller.innerRadius + meta.controller.outerRadius) / 2 + meta.controller.y;
+                            const angle = Math.PI / 180;
+                            ctx.save();
+                            ctx.translate(x, y);
+                            ctx.rotate(direction * angle); 
+                            ctx.beginPath();
+                            ctx.moveTo(0, -25); 
+                            ctx.lineTo(10, 5);  
+                            ctx.lineTo(-10, 5); 
+                            ctx.closePath();
+                            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                            ctx.fill();
+                            ctx.beginPath();
+                            ctx.arc(0, 0, 5, 0, angle * 360, false);
+                            ctx.fill();
+                            ctx.restore();
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- (Función 'loadDataForEma' - sin cambios) ---
+        async function loadDataForEma(emaId) {
+            showLoader(true);
+            
+            try {
+                const url = `{{ url_for('main.get_dashboard_data', ema_id=0) }}`.replace('0', emaId);
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`Error ${response.status} del servidor.`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                showLoader(false); 
+                renderDashboard(data);
+                
+            } catch (error) {
+                console.error("Error al cargar datos del dashboard:", error);
+                widgetContainer.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error al cargar los datos: ${error.message}</div></div>`;
+                showLoader(false); 
+            } 
+        }
+        
+        // --- (Función 'showLoader' - sin cambios) ---
+        function showLoader(show) {
+            loader.style.display = show ? 'block' : 'none';
+            widgetContainer.style.display = show ? 'none' : 'flex'; 
+        }
+
+        // --- (Event Listener 'change' - sin cambios) ---
+        emaSelect.addEventListener('change', function() {
+            const selectedEmaId = this.value;
+            loadDataForEma(selectedEmaId);
+        });
+        
+        // --- Carga Inicial (sin cambios) ---
+        const initialData = {{ dashboard_data | tojson }};
+        renderDashboard(initialData);
+
+    });
+</script>
+{% endblock %}

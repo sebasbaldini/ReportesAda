@@ -1,0 +1,37 @@
+<!-- app/templates/register.html (MODIFICADO) -->
+{% extends "base.html" %}
+
+{% block title %}Generador de Hash{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-7">
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-4">
+                <h1 class="h3 mb-3">Generador de Hash de Contraseña</h1>
+                <p class="text-muted">Usa esta página para generar el 'password_hash' que necesitás pegar en tu archivo <b>config.py</b>.</p>
+
+                <form action="{{ url_for('auth.register') }}" method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}"/>
+
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Escribí la contraseña que querés usar:</label>
+                        <input type="password" id="password" name="password" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-shield-lock"></i> Generar Hash
+                    </button>
+                </form>
+
+                {% if generated_hash %}
+                    <div class="alert alert-success mt-4">
+                        <p class="fw-bold">¡Hash generado! Copiá y pegá este texto en tu `config.py`:</p>
+                        <!-- (Usamos 'form-control' para que el textarea se vea bien) -->
+                        <textarea readonly class="form-control" rows="4">{{ generated_hash }}</textarea>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,112 @@
+/* app/static/css/style.css */
+
+/* 1. Altura de los Gráficos (Página de Gráficos PERSONALIZADOS) */
+.chart-wrapper {
+    width: 100%;
+    min-height: 550px;
+    margin-bottom: 2rem;
+    border: 1px solid #dee2e6; 
+    border-radius: 0.375rem;
+    padding: 1rem;
+}
+
+/* === Estilos para el Dashboard (graficos.html) === */
+
+/* Fondo del ícono */
+.widget-icon-bg {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.widget-icon-bg i {
+    font-size: 1.5rem; /* 24px */
+}
+
+/* Valor principal del widget */
+.widget-value {
+    line-height: 1;
+}
+
+/* Timestamp (última actualización) */
+.widget-timestamp {
+    font-size: 0.75rem; /* 12px */
+}
+
+/* Medidor de Termómetro/Nivel */
+.widget-gauge-thermo .progress,
+.widget-gauge-level .progress {
+    width: 20px;
+    flex-direction: column-reverse; /* Hacemos el progress-bar vertical */
+}
+
+.widget-gauge-thermo .progress-bar {
+    width: 100%;
+    transition: height 0.5s ease-out;
+}
+.widget-gauge-level .progress-bar {
+    width: 100%;
+    transition: height 0.5s ease-out;
+}
+
+/* Brújula de Viento */
+.widget-gauge-compass {
+    position: relative;
+}
+
+/* === Arreglo para el ícono de capas de Leaflet === */
+/* (Esto ya lo tenías) */
+
+/* 1. Ocultamos la imagen rota (layers.png) que da 404 */
+.leaflet-control-layers-toggle {
+    background-image: none !important; 
+    width: 36px !important;
+    height: 36px !important;
+}
+
+/* 2. Preparamos el contenedor para un ícono de Bootstrap */
+.leaflet-control-layers-toggle::before {
+    font-family: "bootstrap-icons" !important;
+    content: "\F542"; /* Código del ícono "bi-stack" */
+    font-size: 20px;
+    color: #555;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* 3. Cambiamos el color cuando pasás el mouse */
+.leaflet-control-layers-toggle:hover::before {
+    color: #000;
+}
+
+
+/* === ¡AQUÍ ESTÁ LA CLASE QUE FALTABA! === */
+/* Estilo para el "Punto Verde" del mapa */
+.green-dot-icon {
+    /* Color verde (el verde de "éxito" de Bootstrap) */
+    background-color: #198754; 
+    
+    /* Borde blanco para que resalte */
+    border: 2px solid #ffffff; 
+    
+    /* Sombra suave */
+    box-shadow: 0 0 5px rgba(0,0,0,0.5); 
+    
+    /* ¡La magia para hacerlo un círculo! */
+    border-radius: 50%; 
+    
+    /* Tamaño (ancho y alto) */
+    width: 12px;
+    height: 12px;
+
+    /* Estos márgenes negativos son un truco de Leaflet
+       para centrar el círculo exactamente sobre la coordenada */
+    margin-left: -8px;
+    margin-top: -8px;
+}

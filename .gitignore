@@ -1,0 +1,10 @@
+# Entorno virtual de Python
+venv/
+.venv/
+
+# Archivos compilados de Python
+__pycache__/
+*.pyc
+
+# ¡IMPORTANTE! Archivo de configuración con contraseñas
+config.py

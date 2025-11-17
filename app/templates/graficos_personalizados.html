@@ -1,0 +1,333 @@
+<!-- app/templates/graficos_personalizados.html (MODIFICADO) -->
+{% extends "base.html" %}
+
+{% block title %}Gráficos Personalizados - SIMPARH{% endblock %}
+
+{% block head %}
+    {{ super() }}
+    <!-- (El estilo de .chart-wrapper ya está en style.css) -->
+{% endblock %}
+
+
+{% block content %}
+<div class="card shadow-sm border-0">
+<div class="card-body p-4 p-md-5">
+
+    <h1 class="h3 mb-3">Gráficos Personalizados</h1>
+    <p class="text-muted mb-4">Seleccione los filtros para generar uno o más gráficos de serie de tiempo.</p>
+
+    <!-- 1. Controles (Selectores) -->
+    <div class="form-container" id="chart-controls">
+        <div class="row g-3">
+            <div class="col-12">
+                <label for="ema_select" class="form-label fw-bold">1. Seleccione una EMA:</label>
+                <select id="ema_select" name="ema_id" class="form-select form-select-lg" required 
+                        data-sensors-url="{{ url_for('main.get_sensors_for_ema', ema_id='temp-id') }}">
+                    <option value="" disabled selected>-- Seleccione una EMA --</option>
+                    {% for ema_id, display_text in emas_list %}
+                        <option value="{{ ema_id }}">{{ display_text }}</option>
+                    {% endfor %}
+                    <option value="todas">-- TODAS LAS EMAs --</option>
+                </select>
+            </div>
+
+            <div class="col-12">
+                <label class="form-label fw-bold">2. Seleccione Sensor(es):</label>
+                <div id="sensor-container" class="vstack gap-2">
+                    <p id="sensor-placeholder" class="text-muted">Por favor, seleccione una EMA primero.</p>
+                </div>
+                <button type="button" id="add-sensor-btn" class="btn btn-outline-success btn-sm mt-2" style="display: none;">
+                    <i class="bi bi-plus-circle"></i> Agregar otro sensor
+                </button>
+            </div>
+            
+            <div class="col-md-6">
+                <label for="fecha_inicio" class="form-label fw-bold">3. Fecha de INICIO:</label>
+                <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+                <label for="fecha_fin" class="form-label fw-bold">4. Fecha de FIN:</label>
+                <input type="date" id="fecha_fin" name="fecha_fin" class="form-control" required>
+            </div>
+
+            <!-- === MODIFICADO: Checkbox 'disabled' por defecto === -->
+            <div class="col-12">
+                <div class="form-check form-switch mt-3">
+                    <input class="form-check-input" type="checkbox" role="switch" id="combine_charts" disabled>
+                    <label class="form-check-label" for="combine_charts">
+                        <strong>Combinar gráficos en uno solo</strong> (Solo Lluvia + Nivel)
+                    </label>
+                    <small class="form-text text-muted d-block" id="combine_charts_help">
+                        (Debe seleccionar exactamente 1 sensor de Lluvia y 1 sensor de Nivel para activar.)
+                    </small>
+                </div>
+            </div>
+            <!-- === FIN DEL MODIFICADO Checkbox === -->
+
+
+            <div class="col-12 mt-4">
+                <button id="update-chart-btn" class="btn btn-primary btn-lg w-100">
+                    <i class="bi bi-arrow-clockwise"></i> Actualizar Gráfico(s)
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+</div>
+
+<!-- 2. El Contenedor de Gráficos -->
+<div id="chart-container" class="mt-4">
+    <p id="chart-message" class="alert alert-info" style="display: none;">Cargando datos...</p>
+</div>
+
+
+<!-- 3. Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let currentSensorList = [];
+    let chartInstances = []; 
+
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        const emaSelect = document.getElementById('ema_select');
+        const sensorContainer = document.getElementById('sensor-container');
+        const sensorPlaceholder = document.getElementById('sensor-placeholder');
+        const addSensorBtn = document.getElementById('add-sensor-btn'); 
+        const fechaInicio = document.getElementById('fecha_inicio');
+        const fechaFin = document.getElementById('fecha_fin');
+        const updateBtn = document.getElementById('update-chart-btn');
+        const chartMessage = document.getElementById('chart-message');
+        const chartContainer = document.getElementById('chart-container');
+        
+        const combineChartsCheckbox = document.getElementById('combine_charts');
+        const combineChartsHelp = document.getElementById('combine_charts_help');
+
+        // === ¡NUEVA FUNCIÓN! Para validar el checkbox "Combinar" ===
+        function validateCombineCheckbox() {
+            // 1. Obtener todos los selectores de sensor actuales
+            const sensorSelects = sensorContainer.querySelectorAll('.sensor-select');
+            
+            let pluvioCount = 0;
+            let nivelCount = 0;
+            
+            // 2. Contar cuántos sensores de Lluvia y Nivel hay
+            sensorSelects.forEach(select => {
+                const selectedOption = select.options[select.selectedIndex];
+                if (selectedOption && selectedOption.dataset.searchText) {
+                    const searchText = selectedOption.dataset.searchText.toLowerCase();
+                    if (searchText.includes('pluvio')) {
+                        pluvioCount++;
+                    } else if (searchText.includes('limni') || searchText.includes('freati')) {
+                        nivelCount++;
+                    }
+                }
+            });
+
+            // 3. La regla: 1 de Lluvia Y 1 de Nivel Y 2 en total
+            const isValid = (pluvioCount === 1 && nivelCount === 1 && sensorSelects.length === 2);
+
+            // 4. Habilitar o deshabilitar el checkbox
+            if (isValid) {
+                combineChartsCheckbox.disabled = false;
+                combineChartsHelp.textContent = "¡Combinación válida! (Lluvia + Nivel).";
+                combineChartsHelp.style.color = 'green';
+            } else {
+                combineChartsCheckbox.disabled = true;
+                combineChartsCheckbox.checked = false; // Desmarcarlo si deja de ser válido
+                combineChartsHelp.textContent = "(Debe seleccionar exactamente 1 sensor de Lluvia y 1 sensor de Nivel para activar.)";
+                combineChartsHelp.style.color = '#6c757d'; // Color 'muted'
+            }
+        }
+        
+        // --- MODIFICADO: addSensorRow (Ahora llama a validateCombineCheckbox) ---
+        function addSensorRow() {
+            const row = document.createElement('div');
+            row.className = 'input-group sensor-row'; 
+            const sensorSelect = document.createElement('select');
+            sensorSelect.name = 'sensor_info';
+            sensorSelect.className = 'form-select sensor-select'; 
+            sensorSelect.required = true;
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-outline-danger'; 
+            removeBtn.innerHTML = '<i class="bi bi-trash"></i>';
+            
+            // ¡MODIFICADO! Al eliminar, re-validar
+            removeBtn.addEventListener('click', function() { 
+                row.remove(); 
+                validateCombineCheckbox(); // <-- Validar
+            });
+            
+            sensorSelect.innerHTML = '<option value="" disabled selected>-- Seleccione un sensor --</option>';
+            currentSensorList.forEach(sensor => {
+                const option = document.createElement('option'); 
+                option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
+                option.dataset.searchText = sensor.search_text; 
+                option.textContent = sensor.nombre;
+                sensorSelect.appendChild(option);
+            });
+            if (sensorSelect.options.length > 1) {
+                 sensorSelect.value = sensorSelect.options[1].value;
+            }
+            
+            // ¡MODIFICADO! Al cambiar el sensor, re-validar
+            sensorSelect.addEventListener('change', validateCombineCheckbox); // <-- Validar
+
+            row.appendChild(sensorSelect);
+            row.appendChild(removeBtn);
+            sensorContainer.appendChild(row);
+            
+            validateCombineCheckbox(); // <-- Validar al agregar
+        }
+
+        // --- MODIFICADO: emaSelect 'change' (Ahora llama a validateCombineCheckbox) ---
+        emaSelect.addEventListener('change', function() {
+            const selectedEmaId = this.value.trim();
+            sensorContainer.innerHTML = ''; 
+            addSensorBtn.style.display = 'none'; 
+            currentSensorList = [];
+            validateCombineCheckbox(); // <-- Validar (para resetearlo)
+            
+            if (!selectedEmaId) {
+                sensorContainer.appendChild(sensorPlaceholder); 
+                return;
+            }
+            const loadingP = document.createElement('p');
+            loadingP.textContent = 'Cargando sensores...';
+            sensorContainer.appendChild(loadingP);
+            const baseUrl = emaSelect.dataset.sensorsUrl;
+            const urlToFetch = baseUrl.replace('temp-id', encodeURIComponent(selectedEmaId));
+            fetch(urlToFetch) 
+                .then(response => response.json())
+                .then(sensores => {
+                    currentSensorList = sensores; 
+                    sensorContainer.innerHTML = ''; 
+                    if (sensores && sensores.length > 0) {
+                        addSensorRow(); 
+                        addSensorBtn.style.display = 'block'; 
+                    } else {
+                        sensorContainer.innerHTML = '<p class="text-muted">Esta EMA no tiene sensores activos registrados.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al buscar datos de la EMA:', error);
+                    sensorContainer.innerHTML = '<p class="text-danger">Error al cargar sensores.</p>';
+                });
+        });
+
+        // --- MODIFICADO: addSensorBtn 'click' (Ahora llama a validateCombineCheckbox) ---
+        addSensorBtn.addEventListener('click', function() {
+            addSensorRow();
+            validateCombineCheckbox(); // <-- Validar
+        });
+
+        // (updateBtn 'click' - sin cambios)
+        updateBtn.addEventListener('click', function() {
+            const ema_id = emaSelect.value;
+            const sensorSelects = document.querySelectorAll('.sensor-select');
+            const fecha_inicio = fechaInicio.value;
+            const fecha_fin = fechaFin.value;
+
+            // (Validación - sin cambios)
+            if (sensorSelects.length === 0) { alert("Por favor, seleccione al menos un sensor."); return; }
+            if (!ema_id || !fecha_inicio || !fecha_fin) { alert("Por favor, complete EMA, Fecha de Inicio y Fecha de Fin."); return; }
+            const sensor_info_list = [];
+            let allSensorsValid = true;
+            sensorSelects.forEach(select => {
+                if (select.value) { sensor_info_list.push(select.value); } else { allSensorsValid = false; }
+            });
+            if (!allSensorsValid) { alert("Por favor, asegúrese de que todos los sensores seleccionados tengan un valor."); return; }
+
+            // (Mensaje de carga - sin cambios)
+            chartMessage.style.display = 'block';
+            chartMessage.className = 'alert alert-info';
+            chartMessage.textContent = 'Cargando datos...';
+            destroyCharts();
+
+            // (Construcción de URL - sin cambios)
+            const basePath = "{{ url_for('main.get_chart_data') }}";
+            const params = new URLSearchParams({
+                'ema_id': ema_id,
+                'fecha_inicio': fecha_inicio,
+                'fecha_fin': fecha_fin
+            });
+            sensor_info_list.forEach(sensor_info => {
+                params.append('sensor_info', sensor_info);
+            });
+            if (combineChartsCheckbox.checked) {
+                params.append('combine', 'true');
+            }
+            
+            // (Fetch - sin cambios)
+            const urlToFetch = `${basePath}?${params.toString()}`;
+            fetch(urlToFetch)
+                .then(response => {
+                    if (!response.ok) { 
+                        throw new Error(`Error ${response.status} del servidor.`); 
+                    }
+                    return response.json();
+                })
+                .then(chartsData => { 
+                    chartMessage.style.display = 'none'; 
+                    if (chartsData.error) { throw new Error(chartsData.error); }
+                    drawCharts(chartsData); 
+                })
+                .catch(error => {
+                    console.error('Error al buscar datos del gráfico:', error);
+                    chartMessage.textContent = 'Error al cargar datos: ' + error.message;
+                    chartMessage.className = 'alert alert-danger';
+                });
+        });
+
+        // (destroyCharts - sin cambios)
+        function destroyCharts() {
+            if (chartInstances.length > 0) {
+                chartInstances.forEach(chart => chart.destroy());
+                chartInstances = []; 
+            }
+            chartContainer.querySelectorAll('.chart-wrapper').forEach(cw => cw.remove());
+        }
+
+        // (drawCharts - sin cambios)
+        function drawCharts(chartsData) { 
+            destroyCharts(); 
+            chartsData.forEach((chartData, index) => {
+                const chartWrapper = document.createElement('div');
+                chartWrapper.className = 'chart-wrapper';
+                const canvas = document.createElement('canvas');
+                canvas.id = `myChart_${index}`;
+                chartWrapper.appendChild(canvas);
+                chartContainer.insertBefore(chartWrapper, chartMessage); 
+                const ctx = canvas.getContext('2d');
+                const chartOptions = chartData.options || {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { title: { display: true, text: 'Fecha' } },
+                        y: {
+                            title: { display: true, text: 'Valor' },
+                            beginAtZero: (chartData.chart_type === 'bar') 
+                        }
+                    },
+                    plugins: {
+                        tooltip: { mode: 'index', intersect: false, },
+                        title: {
+                            display: true,
+                            text: chartData.datasets[0].label || 'Gráfico'
+                        }
+                    }
+                };
+                const newChart = new Chart(ctx, {
+                    type: chartData.chart_type, 
+                    data: {
+                        labels: chartData.labels,
+                        datasets: chartData.datasets
+                    },
+                    options: chartOptions
+                });
+                chartInstances.push(newChart);
+            });
+        }
+    });
+</script>
+{% endblock %}
