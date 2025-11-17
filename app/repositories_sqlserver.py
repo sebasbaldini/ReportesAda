@@ -1,6 +1,6 @@
 # app/repositories_sqlserver.py
 # (Este archivo habla con la base de datos SQL Server)
-# [CORRECCIÓN FINAL: Usando IDs de sensor 7, 8 y 15]
+# [CORRECCIÓN FINAL: "Dato Crudo" de Pluvio (ID 7) vuelve a ser T.Valor (el acumulador)]
 
 import pyodbc
 import pandas as pd
@@ -164,7 +164,6 @@ def get_sensors_for_ema_repo(db_key, G_SENSOR_CACHE, ema_id):
             table_name = None
             search_text = (str(sensor_nombre) or "").lower()
             
-            # --- ¡CORRECCIÓN! ---
             # (Usamos los IDs que nos diste)
             if sensor_id == 7: # Pluviometro
                 table_name = 'pluviometro'
@@ -204,7 +203,7 @@ def get_sensors_for_ema_repo(db_key, G_SENSOR_CACHE, ema_id):
         raise e 
 
 # ==============================================================================
-# === REPOSITORIO DE REPORTES (SQL Server) =====================================
+# === REPOSITORIO DE REPORTES (SQL Server) [¡CORREGIDO!] =======================
 # ==============================================================================
 def generate_report_repo(db_key, ema_id_form, fecha_inicio_str, fecha_fin_str, sensor_info_list, process_type_list):
     """
@@ -220,31 +219,44 @@ def generate_report_repo(db_key, ema_id_form, fecha_inicio_str, fecha_fin_str, s
     
     for sensor_info, process_type in zip(sensor_info_list, process_type_list):
         sensor_id, table_name, sensor_name = sensor_info.split('|')
+        sensor_id_int = int(sensor_id) # Usamos el ID para la lógica
 
         base_select = "e.id AS ema_id, e.Nombre AS nombre_ema, e.Observaciones AS descripcion_ema, NULL AS latitud, NULL AS longitud, ? AS sensor_nombre"
         group_by_ema_cols = "e.id, e.Nombre, e.Observaciones" 
 
         time_cols, value_col, group_by_time_cols = "", "", ""
 
+        # --- ¡LÓGICA CORREGIDA! ---
+        
         if process_type == 'raw':
+            # (Dato crudo para CUALQUIER sensor)
+            # Esto devuelve el valor del contador tal cual está en la DB,
+            # que es lo que querías.
             time_cols = "t.FechaDelDato AS tiempo_de_medicion, NULL AS dia, NULL AS hora"
             value_col = "t.Valor AS valor"
-        elif process_type == 'pluvio_sum':
-            time_cols = "NULL AS tiempo_de_medicion, CAST(t.FechaDelDato AS date) AS dia, NULL AS hora"
-            value_col = "SUM(t.Valor) AS valor"
-            group_by_time_cols = "CAST(t.FechaDelDato AS date)"
+            group_by_time_cols = ""
+        
+        elif (process_type == 'pluvio_sum' or process_type == 'sum_hourly') and sensor_id_int == 7:
+            # (Usamos MAX-MIN para el total diario u horario DEL PLUVIO)
+            if process_type == 'pluvio_sum':
+                time_cols = "NULL AS tiempo_de_medicion, CAST(t.FechaDelDato AS date) AS dia, NULL AS hora"
+                group_by_time_cols = "CAST(t.FechaDelDato AS date)"
+            else: # sum_hourly
+                time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
+                group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
+            
+            value_col = "MAX(t.Valor) - MIN(t.Valor) AS valor"
+        
         elif process_type == 'nivel_max':
             time_cols = "NULL AS tiempo_de_medicion, CAST(t.FechaDelDato AS date) AS dia, NULL AS hora"
             value_col = "MAX(t.Valor) AS valor"
             group_by_time_cols = "CAST(t.FechaDelDato AS date)"
+        
         elif process_type == 'avg_hourly':
             time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
             value_col = "ROUND(AVG(t.Valor), 3) AS valor"
             group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
-        elif process_type == 'sum_hourly':
-            time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
-            value_col = "SUM(t.Valor) AS valor"
-            group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
+        
         elif process_type == 'max_hourly':
             time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
             value_col = "MAX(t.Valor) AS valor"
@@ -268,7 +280,7 @@ def generate_report_repo(db_key, ema_id_form, fecha_inicio_str, fecha_fin_str, s
             where_conditions.append("e.id = ?")
             where_params.append(int(ema_id_form))
             where_conditions.append("s.id = ?")
-            where_params.append(int(sensor_id))
+            where_params.append(sensor_id_int)
         
         where_conditions.append("t.FechaDelDato >= ?")
         where_params.append(FECHA_INICIO_SQL)
@@ -415,12 +427,13 @@ def get_ema_live_summary_repo(db_key, ema_id):
             ORDER BY d.FechaDelDato DESC
         """,
         'pluvio_sum_hoy': """
-            SELECT SUM(d.Valor)
+            SELECT MAX(d.Valor) - MIN(d.Valor)
             FROM dbo.DatosUTR d
             JOIN dbo.SensoresRemotas sr ON d.idSensoresRemotas = sr.id
             WHERE sr.idRemotas = ? AND sr.idSensores = 7
             AND d.FechaDelDato >= CAST(GETDATE() AS date)
         """
+        # (¡CORREGIDO! Usamos MAX-MIN en lugar de SUM)
     }
     params = (ema_id,) 
 
@@ -473,12 +486,13 @@ def get_dashboard_data_repo(db_key, ema_id):
             ORDER BY d.FechaDelDato DESC
         """,
         'pluvio_sum_hoy': """
-            SELECT SUM(d.Valor)
+            SELECT MAX(d.Valor) - MIN(d.Valor)
             FROM dbo.DatosUTR d
             JOIN dbo.SensoresRemotas sr ON d.idSensoresRemotas = sr.id
             WHERE sr.idRemotas = ? AND sr.idSensores = 7
             AND d.FechaDelDato >= CAST(GETDATE() AS date)
         """
+        # (¡CORREGIDO! Usamos MAX-MIN en lugar de SUM)
     }
     params = (ema_id,)
         
@@ -493,7 +507,7 @@ def get_dashboard_data_repo(db_key, ema_id):
                     # (Bateria y Presion tienen timestamp)
                     if key in ['bateria', 'presion']:
                         data[key] = {'valor': result[0], 'timestamp': result[1]}
-                    # (Pluvio es un SUM, no tiene timestamp)
+                    # (Pluvio es un MAX-MIN, no tiene timestamp)
                     else:
                         data[key] = {'valor': result[0]}
             except Exception as e_query:
