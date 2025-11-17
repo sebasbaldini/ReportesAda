@@ -5,3 +5,7 @@ flask-login
 werkzeug
 openpyxl
 pyodbc
+
+# hay q instalar el obdc driver de sql versión 17
+# para que funcione la parte del simpath. 
+# se descarga desde la pagina oficial
