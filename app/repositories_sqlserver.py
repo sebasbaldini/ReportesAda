@@ -1,6 +1,6 @@
 # app/repositories_sqlserver.py
 # (Este archivo habla con la base de datos SQL Server)
-# [CORRECCIÓN FINAL: "Dato Crudo" de Pluvio (ID 7) vuelve a ser T.Valor (el acumulador)]
+# [CORRECCIÓN FINAL: Lógica de 'LAG' arreglada para Acumulados]
 
 import pyodbc
 import pandas as pd
@@ -212,6 +212,8 @@ def generate_report_repo(db_key, ema_id_form, fecha_inicio_str, fecha_fin_str, s
     """
     
     FECHA_INICIO_SQL = fecha_inicio_str
+    # ¡NUEVO! Buscamos desde 1 día antes para que LAG() funcione
+    FECHA_INICIO_LAG = (datetime.strptime(fecha_inicio_str, '%Y-%m-%d') - timedelta(days=1)).strftime('%Y-%m-%d')
     FECHA_FIN_SQL = (datetime.strptime(fecha_fin_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
     
     all_queries = []
@@ -221,86 +223,140 @@ def generate_report_repo(db_key, ema_id_form, fecha_inicio_str, fecha_fin_str, s
         sensor_id, table_name, sensor_name = sensor_info.split('|')
         sensor_id_int = int(sensor_id) # Usamos el ID para la lógica
 
-        base_select = "e.id AS ema_id, e.Nombre AS nombre_ema, e.Observaciones AS descripcion_ema, NULL AS latitud, NULL AS longitud, ? AS sensor_nombre"
-        group_by_ema_cols = "e.id, e.Nombre, e.Observaciones" 
+        # --- ¡NUEVA LÓGICA! ---
+        # Si es Pluvio (Simath) y un ACUMULADO, usamos una subconsulta (CTE)
+        if table_name == 'pluviometro' and process_type in ['pluvio_sum', 'sum_hourly']:
+            
+            # 1. Definir la subconsulta (CTE) que calcula los deltas
+            cte_sql = """
+                WITH Deltas AS (
+                    SELECT
+                        t.FechaDelDato,
+                        sr.id AS SensorRemotaID,
+                        CASE
+                            /* Si es la primera fila (LAG is NULL), delta es 0 */
+                            WHEN LAG(t.Valor, 1) OVER (PARTITION BY sr.id ORDER BY t.FechaDelDato) IS NULL THEN 0.0
+                            /* Si hay reseteo (Valor < Valor_Anterior), delta es el nuevo Valor */
+                            WHEN t.Valor < LAG(t.Valor, 1) OVER (PARTITION BY sr.id ORDER BY t.FechaDelDato) THEN t.Valor
+                            /* Normal: Valor - Valor_Anterior */
+                            ELSE t.Valor - LAG(t.Valor, 1) OVER (PARTITION BY sr.id ORDER BY t.FechaDelDato)
+                        END AS delta_valor,
+                        e.id AS ema_id, 
+                        e.Nombre AS nombre_ema, 
+                        e.Observaciones AS descripcion_ema
+                    FROM dbo.DatosUTR t 
+                    JOIN dbo.SensoresRemotas sr ON t.idSensoresRemotas = sr.id 
+                    JOIN dbo.Remotas e ON sr.idRemotas = e.id 
+                    JOIN dbo.Sensores s ON sr.idSensores = s.id
+                    WHERE {where_placeholder}
+                )
+            """
+            
+            # 2. Definir el SELECT principal que SUMA los deltas
+            base_select_cte = "ema_id, nombre_ema, descripcion_ema, NULL, NULL, ? AS sensor_nombre"
+            value_col_cte = "SUM(delta_valor) AS valor"
 
-        time_cols, value_col, group_by_time_cols = "", "", ""
-
-        # --- ¡LÓGICA CORREGIDA! ---
-        
-        if process_type == 'raw':
-            # (Dato crudo para CUALQUIER sensor)
-            # Esto devuelve el valor del contador tal cual está en la DB,
-            # que es lo que querías.
-            time_cols = "t.FechaDelDato AS tiempo_de_medicion, NULL AS dia, NULL AS hora"
-            value_col = "t.Valor AS valor"
-            group_by_time_cols = ""
-        
-        elif (process_type == 'pluvio_sum' or process_type == 'sum_hourly') and sensor_id_int == 7:
-            # (Usamos MAX-MIN para el total diario u horario DEL PLUVIO)
             if process_type == 'pluvio_sum':
-                time_cols = "NULL AS tiempo_de_medicion, CAST(t.FechaDelDato AS date) AS dia, NULL AS hora"
-                group_by_time_cols = "CAST(t.FechaDelDato AS date)"
+                time_cols_cte = "NULL AS tiempo_de_medicion, CAST(FechaDelDato AS date) AS dia, NULL AS hora"
+                group_by_cte = "ema_id, nombre_ema, descripcion_ema, CAST(FechaDelDato AS date)"
             else: # sum_hourly
+                time_cols_cte = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, FechaDelDato), CAST(CAST(FechaDelDato AS date) AS datetime)) AS hora"
+                group_by_cte = "ema_id, nombre_ema, descripcion_ema, DATEADD(hour, DATEPART(hour, FechaDelDato), CAST(CAST(FechaDelDato AS date) AS datetime))"
+
+            # 3. Armar los WHERE para la subconsulta
+            where_conditions = []
+            where_params = []
+            if ema_id_form == 'todas':
+                where_conditions.append("s.Nombre = ?")
+                where_params.append(sensor_name)
+            else:
+                where_conditions.append("e.id = ?")
+                where_params.append(int(ema_id_form))
+                where_conditions.append("s.id = ?")
+                where_params.append(sensor_id_int)
+            
+            # ¡CORRECCIÓN! El WHERE de la CTE empieza 1 día ANTES
+            where_conditions.append("t.FechaDelDato >= ?")
+            where_params.append(FECHA_INICIO_LAG) 
+            where_conditions.append("t.FechaDelDato < ?")
+            where_params.append(FECHA_FIN_SQL)
+            
+            where_placeholder = " AND ".join(where_conditions)
+            
+            # 4. Finalizar la query
+            query_part = cte_sql.format(where_placeholder=where_placeholder)
+            query_part += f"""
+                SELECT {base_select_cte}, {time_cols_cte}, {value_col_cte}, ? AS tipo_procesamiento
+                FROM Deltas
+                /* ¡CORRECCIÓN! El filtro de fecha real va AFUERA */
+                WHERE FechaDelDato >= ? AND FechaDelDato < ?
+                GROUP BY {group_by_cte}
+            """
+            
+            # 5. Armar los params
+            tipo_proceso_display = PROCESS_TYPE_TRANSLATION.get(process_type, process_type)
+            query_params = where_params + [sensor_name, tipo_proceso_display, FECHA_INICIO_SQL, FECHA_FIN_SQL]
+
+        # --- LÓGICA ANTIGUA (para todo lo demás, incluyendo "Dato Crudo" de Pluvio) ---
+        else:
+            base_select = "e.id AS ema_id, e.Nombre AS nombre_ema, e.Observaciones AS descripcion_ema, NULL AS latitud, NULL AS longitud, ? AS sensor_nombre"
+            group_by_ema_cols = "e.id, e.Nombre, e.Observaciones"
+            
+            if process_type == 'raw':
+                time_cols = "t.FechaDelDato AS tiempo_de_medicion, NULL AS dia, NULL AS hora"
+                value_col = "t.Valor AS valor" # <-- Revertido a t.Valor
+                group_by_time_cols = ""
+            
+            elif process_type == 'nivel_max':
+                time_cols = "NULL AS tiempo_de_medicion, CAST(t.FechaDelDato AS date) AS dia, NULL AS hora"
+                value_col = "MAX(t.Valor) AS valor"
+                group_by_time_cols = "CAST(t.FechaDelDato AS date)"
+            
+            elif process_type == 'avg_hourly':
                 time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
+                value_col = "ROUND(AVG(t.Valor), 3) AS valor"
                 group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
             
-            value_col = "MAX(t.Valor) - MIN(t.Valor) AS valor"
-        
-        elif process_type == 'nivel_max':
-            time_cols = "NULL AS tiempo_de_medicion, CAST(t.FechaDelDato AS date) AS dia, NULL AS hora"
-            value_col = "MAX(t.Valor) AS valor"
-            group_by_time_cols = "CAST(t.FechaDelDato AS date)"
-        
-        elif process_type == 'avg_hourly':
-            time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
-            value_col = "ROUND(AVG(t.Valor), 3) AS valor"
-            group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
-        
-        elif process_type == 'max_hourly':
-            time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
-            value_col = "MAX(t.Valor) AS valor"
-            group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
+            elif process_type == 'max_hourly':
+                time_cols = "NULL AS tiempo_de_medicion, NULL AS dia, DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime)) AS hora"
+                value_col = "MAX(t.Valor) AS valor"
+                group_by_time_cols = "DATEADD(hour, DATEPART(hour, t.FechaDelDato), CAST(CAST(t.FechaDelDato AS date) AS datetime))"
+            
+            # (Armado de query normal)
+            base_join = (
+                "FROM dbo.DatosUTR t "
+                "JOIN dbo.SensoresRemotas sr ON t.idSensoresRemotas = sr.id "
+                "JOIN dbo.Remotas e ON sr.idRemotas = e.id "
+                "JOIN dbo.Sensores s ON sr.idSensores = s.id"
+            )
+            where_conditions = []
+            where_params = []
+            if ema_id_form == 'todas':
+                where_conditions.append("s.Nombre = ?")
+                where_params.append(sensor_name)
+            else:
+                where_conditions.append("e.id = ?")
+                where_params.append(int(ema_id_form))
+                where_conditions.append("s.id = ?")
+                where_params.append(sensor_id_int)
+            where_conditions.append("t.FechaDelDato >= ?")
+            where_params.append(FECHA_INICIO_SQL)
+            where_conditions.append("t.FechaDelDato < ?")
+            where_params.append(FECHA_FIN_SQL)
+            
+            base_where = "WHERE " + " AND ".join(where_conditions)
+            group_by_suffix = ""
+            if process_type != 'raw':
+                group_by_suffix = f"GROUP BY {group_by_ema_cols}, {group_by_time_cols}"
+            
+            tipo_proceso_display = PROCESS_TYPE_TRANSLATION.get(process_type, process_type)
+            query_part = f"(SELECT {base_select}, {time_cols}, {value_col}, ? AS tipo_procesamiento {base_join} {base_where} {group_by_suffix})"
+            query_params = [sensor_name, tipo_proceso_display] + where_params
 
-        # (Los JOINS de SQL Server - Corregidos a plural)
-        base_join = (
-            "FROM dbo.DatosUTR t "
-            "JOIN dbo.SensoresRemotas sr ON t.idSensoresRemotas = sr.id "
-            "JOIN dbo.Remotas e ON sr.idRemotas = e.id "
-            "JOIN dbo.Sensores s ON sr.idSensores = s.id"
-        )
-        
-        where_conditions = []
-        where_params = []
-        
-        if ema_id_form == 'todas':
-            where_conditions.append("LOWER(s.Nombre) = LOWER(?)")
-            where_params.append(sensor_name)
-        else:
-            where_conditions.append("e.id = ?")
-            where_params.append(int(ema_id_form))
-            where_conditions.append("s.id = ?")
-            where_params.append(sensor_id_int)
-        
-        where_conditions.append("t.FechaDelDato >= ?")
-        where_params.append(FECHA_INICIO_SQL)
-        where_conditions.append("t.FechaDelDato < ?")
-        where_params.append(FECHA_FIN_SQL)
-        
-        base_where = "WHERE " + " AND ".join(where_conditions)
-        
-        group_by_suffix = ""
-        if process_type != 'raw':
-            group_by_suffix = f"GROUP BY {group_by_ema_cols}, {group_by_time_cols}"
-
-        tipo_proceso_display = PROCESS_TYPE_TRANSLATION.get(process_type, process_type)
-        
-        query_part = f"(SELECT {base_select}, {time_cols}, {value_col}, ? AS tipo_procesamiento {base_join} {base_where} {group_by_suffix})"
-        
-        query_params = [sensor_name, tipo_proceso_display] + where_params
-        
         all_queries.append(query_part)
         all_params.extend(query_params)
+    
+    # ... (El resto de la función es igual) ...
     
     if not all_queries: 
         print("No se generaron consultas válidas.")
@@ -426,6 +482,7 @@ def get_ema_live_summary_repo(db_key, ema_id):
             WHERE sr.idRemotas = ? AND sr.idSensores = 8
             ORDER BY d.FechaDelDato DESC
         """,
+        # (Usamos MAX-MIN aquí para el popup, es lo suficientemente preciso)
         'pluvio_sum_hoy': """
             SELECT MAX(d.Valor) - MIN(d.Valor)
             FROM dbo.DatosUTR d
@@ -433,7 +490,6 @@ def get_ema_live_summary_repo(db_key, ema_id):
             WHERE sr.idRemotas = ? AND sr.idSensores = 7
             AND d.FechaDelDato >= CAST(GETDATE() AS date)
         """
-        # (¡CORREGIDO! Usamos MAX-MIN en lugar de SUM)
     }
     params = (ema_id,) 
 
@@ -459,63 +515,108 @@ def get_ema_live_summary_repo(db_key, ema_id):
 # ==============================================================================
 # === REPOSITORIO DE DASHBOARD (SQL Server) [¡CORREGIDO POR ID!] ==============
 # ==============================================================================
-def get_dashboard_data_repo(db_key, ema_id):
+def build_sql_precipitacion(tipo, estacion_id):
     """
-    Busca los datos "frescos" para el nuevo dashboard
-    de la base de datos (db_key) seleccionada.
-    (Buscamos Pluvio (7), Batería (8) y Presión (15))
+    tipo: 'pluvio_sum' o 'sum_hourly'
+    estacion_id: ID de la EMA
     """
-    
-    # (Quitamos temp, nivel y viento. Dejamos solo los 3 que existen)
-    data = {
-        'bateria': None, 'presion': None, 'pluvio_sum_hoy': None
-    }
-    queries = {
-        'bateria': """
-            SELECT TOP 1 d.Valor, d.FechaDelDato 
-            FROM dbo.DatosUTR d
-            JOIN dbo.SensoresRemotas sr ON d.idSensoresRemotas = sr.id
-            WHERE sr.idRemotas = ? AND sr.idSensores = 8
-            ORDER BY d.FechaDelDato DESC
-        """,
-        'presion': """
-            SELECT TOP 1 d.Valor, d.FechaDelDato
-            FROM dbo.DatosUTR d
-            JOIN dbo.SensoresRemotas sr ON d.idSensoresRemotas = sr.id
-            WHERE sr.idRemotas = ? AND sr.idSensores = 15
-            ORDER BY d.FechaDelDato DESC
-        """,
-        'pluvio_sum_hoy': """
-            SELECT MAX(d.Valor) - MIN(d.Valor)
-            FROM dbo.DatosUTR d
-            JOIN dbo.SensoresRemotas sr ON d.idSensoresRemotas = sr.id
-            WHERE sr.idRemotas = ? AND sr.idSensores = 7
-            AND d.FechaDelDato >= CAST(GETDATE() AS date)
+
+    # Para Areco u otras estaciones especiales → usar MAX diario
+    usa_max_diario = estacion_id in EMAS_MAX_DIARIO
+
+    # --------------------------
+    # 1) SELECT BASE
+    # --------------------------
+    base_select = """
+        t.EMA,
+        t.FechaDelDato
+    """
+
+    # --------------------------
+    # 2) DEFINICIÓN DE VALOR
+    # --------------------------
+    if usa_max_diario:
+        # San Antonio de Areco
+        value_expression = "MAX(t.Precipitacion) AS valor"
+    else:
+        # EMAs normales → calcular delta con LAG
+        value_expression = """
+        CASE
+            WHEN LAG(t.Precipitacion) OVER (PARTITION BY t.EMA ORDER BY t.FechaDelDato) IS NULL
+                THEN 0
+            WHEN t.Precipitacion < LAG(t.Precipitacion) OVER (PARTITION BY t.EMA ORDER BY t.FechaDelDato)
+                THEN t.Precipitacion  -- reset por día
+            ELSE t.Precipitacion - LAG(t.Precipitacion) OVER (PARTITION BY t.EMA ORDER BY t.FechaDelDato)
+        END AS valor
         """
-        # (¡CORREGIDO! Usamos MAX-MIN en lugar de SUM)
-    }
-    params = (ema_id,)
-        
-    try:
-        conn = get_db_connection(db_key)
-        cursor = conn.cursor()
-        for key, sql in queries.items():
-            try:
-                cursor.execute(sql, params * sql.count('?')) 
-                result = cursor.fetchone()
-                if result and result[0] is not None:
-                    # (Bateria y Presion tienen timestamp)
-                    if key in ['bateria', 'presion']:
-                        data[key] = {'valor': result[0], 'timestamp': result[1]}
-                    # (Pluvio es un MAX-MIN, no tiene timestamp)
-                    else:
-                        data[key] = {'valor': result[0]}
-            except Exception as e_query:
-                print(f"Error al buscar dato '{key}' para EMA {ema_id} ({db_key}): {e_query}")
-                conn.rollback() 
-        cursor.close()
-        conn.close()
-        return data
-    except Exception as e:
-        print(f"Error mayor en get_dashboard_data_repo ({db_key}): {e}")
-        return data
+
+    # --------------------------
+    # 3) CTE DELTAS
+    # --------------------------
+    cte = f"""
+    WITH Deltas AS (
+        SELECT
+            {base_select},
+            {value_expression}
+        FROM Datos AS t
+        WHERE t.EMA = ?
+          AND t.FechaDelDato >= ?
+          AND t.FechaDelDato < ?
+    )
+    """
+
+    # --------------------------
+    # 4) AGRUPACIÓN SEGÚN TIPO
+    # --------------------------
+    if tipo == "pluvio_sum":
+        # por día
+        group_expr = "CAST(FechaDelDato AS date)"
+        final_filter = """
+            WHERE CAST(FechaDelDato AS date) >= ?
+              AND CAST(FechaDelDato AS date) < ?
+        """
+        output_select = """
+            CAST(FechaDelDato AS date) AS fecha,
+            SUM(valor) AS total
+        """
+
+    elif tipo == "sum_hourly":
+        # por hora
+        group_expr = """
+            DATEADD(hour,
+                DATEPART(hour, FechaDelDato),
+                CAST(CAST(FechaDelDato AS date) AS datetime)
+            )
+        """
+
+        final_filter = """
+            WHERE DATEADD(hour, DATEPART(hour, FechaDelDato),
+                    CAST(CAST(FechaDelDato AS date) AS datetime)
+                  ) >= ?
+              AND DATEADD(hour, DATEPART(hour, FechaDelDato),
+                    CAST(CAST(FechaDelDato AS date) AS datetime)
+                  ) < ?
+        """
+
+        output_select = f"""
+            {group_expr} AS fecha,
+            SUM(valor) AS total
+        """
+
+    else:
+        raise ValueError("Tipo inválido.")
+
+    # --------------------------
+    # 5) QUERY FINAL
+    # --------------------------
+    query = f"""
+    {cte}
+    SELECT
+        {output_select}
+    FROM Deltas
+    {final_filter}
+    GROUP BY {group_expr}
+    ORDER BY fecha;
+    """
+
+    return query
