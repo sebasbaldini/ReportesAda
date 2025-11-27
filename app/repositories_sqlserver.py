@@ -7,6 +7,7 @@ import pandas as pd
 import io
 import config 
 from datetime import datetime, timedelta
+from openpyxl.utils import get_column_letter
 
 # --- Traducciones para el Excel ---
 PROCESS_TYPE_TRANSLATION = {
@@ -117,32 +118,55 @@ def get_sensors_for_ema_repo(db_key, G_SENSOR_CACHE, ema_id):
         return []
 
 # ==============================================================================
-# === LÓGICA DE CÁLCULO DE LLUVIA (PYTHON) =====================================
+# === LÓGICA DE CÁLCULO DE LLUVIA (PYTHON) - CORREGIDO: SUMA DIRECTA ===========
 # ==============================================================================
 def calcular_lluvia_acumulada(df_raw, agrupar_por='dia'):
     if df_raw.empty: return pd.DataFrame()
-    df_raw = df_raw.sort_values('tiempo_de_medicion')
-    df_raw['delta'] = df_raw['valor'].diff()
-    # Corrección de resets
-    df_raw.loc[df_raw['delta'] < 0, 'delta'] = df_raw['valor']
-    df_raw['delta'] = df_raw['delta'].fillna(0)
-
+    
+    # Preparamos las columnas de agrupación
     if agrupar_por == 'dia':
         df_raw['grupo'] = df_raw['tiempo_de_medicion'].dt.date
         col_tiempo = 'dia'
     else:
         df_raw['grupo'] = df_raw['tiempo_de_medicion'].dt.floor('H')
         col_tiempo = 'hora'
-        
-    df_agrupado = df_raw.groupby(['ema_id', 'nombre_ema', 'grupo'])['delta'].sum().reset_index()
-    df_agrupado.rename(columns={'delta': 'valor', 'grupo': col_tiempo}, inplace=True)
-    
-    df_agrupado['descripcion_ema'] = ''
-    df_agrupado['sensor_nombre'] = '_Pluviometro'
-    df_agrupado['latitud'] = None
-    df_agrupado['longitud'] = None
-    return df_agrupado
 
+    # --- SEPARAR LÓGICA: ARECO vs RESTO ---
+    # Asumimos que el nombre contiene 'Areco'
+    mask_areco = df_raw['nombre_ema'].str.contains('Areco', case=False, na=False)
+    
+    df_areco = df_raw[mask_areco].copy()
+    df_normal = df_raw[~mask_areco].copy()
+    
+    resultados = []
+
+    # 1. Lógica para ESTACIONES NORMALES (SUMA DIRECTA)
+    # El usuario indica que el sensor envía el dato parcial, no el acumulado histórico.
+    # Por lo tanto, SUMAMOS todos los valores del periodo.
+    if not df_normal.empty:
+        df_agrup_normal = df_normal.groupby(['ema_id', 'nombre_ema', 'grupo'])['valor'].sum().reset_index()
+        resultados.append(df_agrup_normal)
+
+    # 2. Lógica para ARECO (MÁXIMO)
+    # Areco envía el acumulado ya hecho, buscamos el valor más alto del periodo.
+    if not df_areco.empty:
+        df_agrup_areco = df_areco.groupby(['ema_id', 'nombre_ema', 'grupo'])['valor'].max().reset_index()
+        resultados.append(df_agrup_areco)
+
+    # --- UNIFICAR RESULTADOS ---
+    if not resultados:
+        return pd.DataFrame()
+        
+    df_final = pd.concat(resultados, ignore_index=True)
+    
+    # Formateo final de columnas
+    df_final.rename(columns={'grupo': col_tiempo}, inplace=True)
+    df_final['descripcion_ema'] = ''
+    df_final['sensor_nombre'] = '_Pluviometro'
+    df_final['latitud'] = None
+    df_final['longitud'] = None
+    
+    return df_final
 # ==============================================================================
 # === REPOSITORIO DE REPORTES (SQL Server) =====================================
 # ==============================================================================
@@ -261,35 +285,42 @@ def get_ema_locations_repo(db_key):
     except: return []
 
 # ==============================================================================
-# === DASHBOARD Y POPUP (CORREGIDO: Protección contra NULL) ====================
+# === DASHBOARD Y POPUP (CORREGIDO: Suma Directa + Lógica Areco) ===============
 # ==============================================================================
 def get_dashboard_data_repo(db_key, ema_id):
     """
-    Trae datos frescos y CALCULA la lluvia acumulada de hoy usando Python.
-    ¡PROTEGE CONTRA VALORES NULL PARA EVITAR ERRORES 500!
+    Trae datos frescos.
+    - Si es Areco: El acumulado de hoy es el MAX(Valor) de hoy.
+    - Si es Normal: El acumulado de hoy es la SUMA DIRECTA(Valor) de hoy.
     """
     data = {'bateria': None, 'presion': None, 'pluvio_sum_hoy': None}
     
     conn = get_db_connection(db_key)
     try:
-        # 1. Batería (ID 8) - Último dato
-        sql_bat = "SELECT TOP 1 Valor, FechaDelDato FROM dbo.DatosUTR t JOIN dbo.SensoresRemotas sr ON t.idSensoresRemotas=sr.id WHERE sr.idRemotas=? AND sr.idSensores=8 ORDER BY FechaDelDato DESC"
         cursor = conn.cursor()
+
+        # 0. IDENTIFICAR SI ES ARECO
+        cursor.execute("SELECT Nombre FROM dbo.Remotas WHERE id = ?", (ema_id,))
+        row_nombre = cursor.fetchone()
+        es_areco = False
+        if row_nombre and 'areco' in row_nombre[0].lower():
+            es_areco = True
+
+        # 1. Batería (ID 8)
+        sql_bat = "SELECT TOP 1 Valor, FechaDelDato FROM dbo.DatosUTR t JOIN dbo.SensoresRemotas sr ON t.idSensoresRemotas=sr.id WHERE sr.idRemotas=? AND sr.idSensores=8 ORDER BY FechaDelDato DESC"
         cursor.execute(sql_bat, (ema_id,))
         row = cursor.fetchone()
-        # --- ¡CORRECCIÓN AQUÍ! Verificamos que row[0] no sea None ---
         if row and row[0] is not None: 
             data['bateria'] = {'valor': row[0], 'timestamp': row[1]}
         
-        # 2. Presión (ID 15) - Último dato
+        # 2. Presión (ID 15)
         sql_pres = "SELECT TOP 1 Valor, FechaDelDato FROM dbo.DatosUTR t JOIN dbo.SensoresRemotas sr ON t.idSensoresRemotas=sr.id WHERE sr.idRemotas=? AND sr.idSensores=15 ORDER BY FechaDelDato DESC"
         cursor.execute(sql_pres, (ema_id,))
         row = cursor.fetchone()
-        # --- ¡CORRECCIÓN AQUÍ! Verificamos que row[0] no sea None ---
         if row and row[0] is not None: 
             data['presion'] = {'valor': row[0], 'timestamp': row[1]}
         
-        # 3. Lluvia (ID 7) - Acumulado HOY (Calculado)
+        # 3. Lluvia (ID 7) - Acumulado HOY
         sql_pluvio = """
             SELECT Valor, FechaDelDato 
             FROM dbo.DatosUTR t 
@@ -301,12 +332,15 @@ def get_dashboard_data_repo(db_key, ema_id):
         df_pluvio = pd.read_sql_query(sql_pluvio, conn, params=[ema_id])
         
         if not df_pluvio.empty:
-            df_pluvio['delta'] = df_pluvio['Valor'].diff().fillna(0)
-            df_pluvio.loc[df_pluvio['delta'] < 0, 'delta'] = df_pluvio['Valor']
-            total_hoy = df_pluvio['delta'].sum()
+            total_hoy = 0.0
             
-            # --- ¡CORRECCIÓN AQUÍ! ---
-            # Nos aseguramos de que el total no sea NaN o None
+            if es_areco:
+                # LÓGICA ARECO: El acumulado es el valor máximo registrado hoy
+                total_hoy = df_pluvio['Valor'].max()
+            else:
+                # LÓGICA NORMAL (Usuario): Suma directa de todos los valores de hoy
+                total_hoy = df_pluvio['Valor'].sum()
+            
             if pd.notnull(total_hoy):
                 data['pluvio_sum_hoy'] = {'valor': float(total_hoy)}
             
@@ -316,15 +350,6 @@ def get_dashboard_data_repo(db_key, ema_id):
         conn.close()
         
     return data
-
-def get_ema_live_summary_repo(db_key, ema_id):
-    d = get_dashboard_data_repo(db_key, ema_id)
-    res = {}
-    # Solo agregamos al popup si los datos REALMENTE existen
-    if d['bateria']: res['bateria'] = d['bateria']['valor']
-    if d['presion']: res['presion'] = d['presion']['valor']
-    if d['pluvio_sum_hoy']: res['pluvio_sum_hoy'] = d['pluvio_sum_hoy']['valor']
-    return res
 
 # ==============================================================================
 # ==============================================================================
