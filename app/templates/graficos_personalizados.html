@@ -1,12 +1,10 @@
-<!-- app/templates/graficos_personalizados.html (MODIFICADO) -->
 {% extends "base.html" %}
 
 {% block title %}Gráficos Personalizados - SIMPARH{% endblock %}
 
 {% block head %}
     {{ super() }}
-    <!-- (El estilo de .chart-wrapper ya está en style.css) -->
-{% endblock %}
+    {% endblock %}
 
 
 {% block content %}
@@ -16,7 +14,6 @@
     <h1 class="h3 mb-3">Gráficos Personalizados - {{ current_db_name }}</h1>
     <p class="text-muted mb-4">Seleccione los filtros para generar uno o más gráficos de serie de tiempo.</p>
 
-    <!-- 1. Controles (Selectores) -->
     <div class="form-container" id="chart-controls">
         <div class="row g-3">
             <div class="col-12">
@@ -50,7 +47,6 @@
                 <input type="date" id="fecha_fin" name="fecha_fin" class="form-control" required>
             </div>
 
-            <!-- === MODIFICADO: Checkbox 'disabled' por defecto === -->
             <div class="col-12">
                 <div class="form-check form-switch mt-3">
                     <input class="form-check-input" type="checkbox" role="switch" id="combine_charts" disabled>
@@ -62,7 +58,6 @@
                     </small>
                 </div>
             </div>
-            <!-- === FIN DEL MODIFICADO Checkbox === -->
 
 
             <div class="col-12 mt-4">
@@ -75,13 +70,13 @@
 </div>
 </div>
 
-<!-- 2. El Contenedor de Gráficos -->
 <div id="chart-container" class="mt-4">
-    <p id="chart-message" class="alert alert-info" style="display: none;">Cargando datos...</p>
+    <div id="chart-message" class="alert alert-info" style="display: none;" role="alert">
+        Cargando datos...
+    </div>
 </div>
 
 
-<!-- 3. Scripts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     let currentSensorList = [];
@@ -102,15 +97,11 @@
         const combineChartsCheckbox = document.getElementById('combine_charts');
         const combineChartsHelp = document.getElementById('combine_charts_help');
 
-        // === ¡NUEVA FUNCIÓN! Para validar el checkbox "Combinar" ===
         function validateCombineCheckbox() {
-            // 1. Obtener todos los selectores de sensor actuales
             const sensorSelects = sensorContainer.querySelectorAll('.sensor-select');
-            
             let pluvioCount = 0;
             let nivelCount = 0;
             
-            // 2. Contar cuántos sensores de Lluvia y Nivel hay
             sensorSelects.forEach(select => {
                 const selectedOption = select.options[select.selectedIndex];
                 if (selectedOption && selectedOption.dataset.searchText) {
@@ -123,23 +114,20 @@
                 }
             });
 
-            // 3. La regla: 1 de Lluvia Y 1 de Nivel Y 2 en total
             const isValid = (pluvioCount === 1 && nivelCount === 1 && sensorSelects.length === 2);
 
-            // 4. Habilitar o deshabilitar el checkbox
             if (isValid) {
                 combineChartsCheckbox.disabled = false;
                 combineChartsHelp.textContent = "¡Combinación válida! (Lluvia + Nivel).";
                 combineChartsHelp.style.color = 'green';
             } else {
                 combineChartsCheckbox.disabled = true;
-                combineChartsCheckbox.checked = false; // Desmarcarlo si deja de ser válido
+                combineChartsCheckbox.checked = false; 
                 combineChartsHelp.textContent = "(Debe seleccionar exactamente 1 sensor de Lluvia y 1 sensor de Nivel para activar.)";
-                combineChartsHelp.style.color = '#6c757d'; // Color 'muted'
+                combineChartsHelp.style.color = '#6c757d'; 
             }
         }
         
-        // --- MODIFICADO: addSensorRow (Ahora llama a validateCombineCheckbox) ---
         function addSensorRow() {
             const row = document.createElement('div');
             row.className = 'input-group sensor-row'; 
@@ -152,10 +140,9 @@
             removeBtn.className = 'btn btn-outline-danger'; 
             removeBtn.innerHTML = '<i class="bi bi-trash"></i>';
             
-            // ¡MODIFICADO! Al eliminar, re-validar
             removeBtn.addEventListener('click', function() { 
                 row.remove(); 
-                validateCombineCheckbox(); // <-- Validar
+                validateCombineCheckbox(); 
             });
             
             sensorSelect.innerHTML = '<option value="" disabled selected>-- Seleccione un sensor --</option>';
@@ -170,23 +157,21 @@
                  sensorSelect.value = sensorSelect.options[1].value;
             }
             
-            // ¡MODIFICADO! Al cambiar el sensor, re-validar
-            sensorSelect.addEventListener('change', validateCombineCheckbox); // <-- Validar
+            sensorSelect.addEventListener('change', validateCombineCheckbox); 
 
             row.appendChild(sensorSelect);
             row.appendChild(removeBtn);
             sensorContainer.appendChild(row);
             
-            validateCombineCheckbox(); // <-- Validar al agregar
+            validateCombineCheckbox(); 
         }
 
-        // --- MODIFICADO: emaSelect 'change' (Ahora llama a validateCombineCheckbox) ---
         emaSelect.addEventListener('change', function() {
             const selectedEmaId = this.value.trim();
             sensorContainer.innerHTML = ''; 
             addSensorBtn.style.display = 'none'; 
             currentSensorList = [];
-            validateCombineCheckbox(); // <-- Validar (para resetearlo)
+            validateCombineCheckbox(); 
             
             if (!selectedEmaId) {
                 sensorContainer.appendChild(sensorPlaceholder); 
@@ -215,20 +200,17 @@
                 });
         });
 
-        // --- MODIFICADO: addSensorBtn 'click' (Ahora llama a validateCombineCheckbox) ---
         addSensorBtn.addEventListener('click', function() {
             addSensorRow();
-            validateCombineCheckbox(); // <-- Validar
+            validateCombineCheckbox(); 
         });
 
-        // (updateBtn 'click' - sin cambios)
         updateBtn.addEventListener('click', function() {
             const ema_id = emaSelect.value;
             const sensorSelects = document.querySelectorAll('.sensor-select');
             const fecha_inicio = fechaInicio.value;
             const fecha_fin = fechaFin.value;
 
-            // (Validación - sin cambios)
             if (sensorSelects.length === 0) { alert("Por favor, seleccione al menos un sensor."); return; }
             if (!ema_id || !fecha_inicio || !fecha_fin) { alert("Por favor, complete EMA, Fecha de Inicio y Fecha de Fin."); return; }
             const sensor_info_list = [];
@@ -238,13 +220,12 @@
             });
             if (!allSensorsValid) { alert("Por favor, asegúrese de que todos los sensores seleccionados tengan un valor."); return; }
 
-            // (Mensaje de carga - sin cambios)
+            // === 1. Reseteamos la UI ===
             chartMessage.style.display = 'block';
-            chartMessage.className = 'alert alert-info';
-            chartMessage.textContent = 'Cargando datos...';
+            chartMessage.className = 'alert alert-info'; // Azul (Info)
+            chartMessage.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Cargando datos...';
             destroyCharts();
 
-            // (Construcción de URL - sin cambios)
             const basePath = "{{ url_for('main.get_chart_data') }}";
             const params = new URLSearchParams({
                 'ema_id': ema_id,
@@ -258,28 +239,35 @@
                 params.append('combine', 'true');
             }
             
-            // (Fetch - sin cambios)
             const urlToFetch = `${basePath}?${params.toString()}`;
+            
+            // === 2. Fetch con manejo de errores mejorado ===
             fetch(urlToFetch)
-                .then(response => {
+                .then(async response => {
+                    // Si el servidor responde con error (ej: 403 Forbidden)
                     if (!response.ok) { 
-                        throw new Error(`Error ${response.status} del servidor.`); 
+                        // Intentamos leer el mensaje JSON que mandó el servidor
+                        const errorData = await response.json().catch(() => ({}));
+                        // Usamos ese mensaje, o uno genérico si falla
+                        throw new Error(errorData.error || `Error ${response.status} del servidor.`); 
                     }
                     return response.json();
                 })
                 .then(chartsData => { 
+                    // Éxito: Ocultamos el mensaje
                     chartMessage.style.display = 'none'; 
                     if (chartsData.error) { throw new Error(chartsData.error); }
                     drawCharts(chartsData); 
                 })
                 .catch(error => {
+                    // Error: Mostramos alerta ROJA con el texto del backend
                     console.error('Error al buscar datos del gráfico:', error);
-                    chartMessage.textContent = 'Error al cargar datos: ' + error.message;
-                    chartMessage.className = 'alert alert-danger';
+                    chartMessage.style.display = 'block';
+                    chartMessage.className = 'alert alert-danger'; // Rojo (Peligro)
+                    chartMessage.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> <strong>Atención:</strong> ${error.message}`;
                 });
         });
 
-        // (destroyCharts - sin cambios)
         function destroyCharts() {
             if (chartInstances.length > 0) {
                 chartInstances.forEach(chart => chart.destroy());
@@ -288,7 +276,6 @@
             chartContainer.querySelectorAll('.chart-wrapper').forEach(cw => cw.remove());
         }
 
-        // (drawCharts - sin cambios)
         function drawCharts(chartsData) { 
             destroyCharts(); 
             chartsData.forEach((chartData, index) => {

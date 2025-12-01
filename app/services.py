@@ -6,6 +6,7 @@ from . import repositories_sqlserver
 import config
 import pandas as pd 
 from datetime import datetime
+from flask_login import current_user # Importamos para chequear el rol
 
 # (El mapa de municipios solo se usará para 'db_principal')
 EMA_MUNICIPIO_MAP = {
@@ -80,7 +81,40 @@ def generate_report_service(db_key, form_data):
 
 def get_sensors_for_ema_service(db_key, ema_id):
     repo = get_repo_for_db(db_key)
-    return repo.get_sensors_for_ema_repo(db_key, G_SENSOR_CACHE, ema_id)
+    todos_los_sensores = repo.get_sensors_for_ema_repo(db_key, G_SENSOR_CACHE, ema_id)
+    
+    # === FILTRO DE BATERÍA PARA USUARIO RESTRINGIDO (MEJORADO) ===
+    if current_user.is_authenticated and current_user.role == 'restricted':
+        sensores_filtrados = []
+        
+        # Palabras que queremos ocultar
+        palabras_prohibidas = ['bateria', 'Bateria', '_Bateria', '_bateria']
+        
+        for s in todos_los_sensores:
+            # 1. Revisamos el nombre técnico de la tabla (ej: 'medicion_bateria')
+            nombre_tabla = s.get('table_name', '').lower()
+            
+            # 2. Revisamos el texto visible (ej: 'Sensor de Tensión 12V')
+            texto_busqueda = s.get('search_text', '').lower()
+            
+            es_bateria = False
+            
+            # Si la tabla contiene 'bateria', es batería seguro -> Ocultar
+            if 'bateria' in nombre_tabla:
+                es_bateria = True
+            
+            # Si el nombre visible tiene alguna palabra prohibida -> Ocultar
+            if any(palabra in texto_busqueda for palabra in palabras_prohibidas):
+                es_bateria = True
+            
+            # Solo lo agregamos a la lista si NO es batería
+            if not es_bateria:
+                sensores_filtrados.append(s)
+                
+        return sensores_filtrados
+    # =============================================================
+    
+    return todos_los_sensores
 
 def get_ema_list_service(db_key):
     """
@@ -279,91 +313,72 @@ def get_ema_locations_service(db_key):
     return repo.get_ema_locations_repo(db_key)
 
 def get_ema_live_summary_service(db_key, ema_id):
-    """
-    Servicio para buscar los datos frescos de una EMA (Popup).
-    """
     repo = get_repo_for_db(db_key)
     raw_data = repo.get_ema_live_summary_repo(db_key, ema_id)
     
     formatted_data = {}
     
+    # (Formateo normal...)
     if raw_data.get('pluvio_sum_hoy') is not None:
         formatted_data['pluvio_sum_hoy'] = f"{round(raw_data['pluvio_sum_hoy'], 1)} mm (hoy)"
-    
     if raw_data.get('temperatura') is not None:
         formatted_data['temperatura'] = f"{round(raw_data['temperatura'], 1)} °C"
     if raw_data.get('nivel_max_hoy') is not None:
         formatted_data['nivel_max_hoy'] = f"{round(raw_data['nivel_max_hoy'], 2)} m"
-        
-    if raw_data.get('bateria') is not None:
-        formatted_data['bateria'] = f"{round(raw_data['bateria'], 2)} V"
     if raw_data.get('presion') is not None:
         formatted_data['presion'] = f"{round(raw_data['presion'], 1)} hPa"
+
+    # === FILTRO DE BATERÍA (POPUP MAPA) ===
+    # Solo mostramos batería si NO es restringido
+    if current_user.is_authenticated and current_user.role != 'restricted':
+        if raw_data.get('bateria') is not None:
+            formatted_data['bateria'] = f"{round(raw_data['bateria'], 2)} V"
+    # =======================================
 
     return formatted_data
 
 def get_dashboard_data_service(db_key, ema_id):
-    """
-    Servicio para buscar los datos frescos del Dashboard.
-    """
     repo = get_repo_for_db(db_key)
     raw_data = repo.get_dashboard_data_repo(db_key, ema_id)
     
     formatted_data = {}
     
     def format_timestamp(ts):
-        if isinstance(ts, datetime):
-            return ts.strftime('%H:%M hs')
+        if isinstance(ts, datetime): return ts.strftime('%H:%M hs')
         return 'N/A'
 
+    # (Carga de datos normal...)
     if raw_data.get('pluvio_sum_hoy'):
-        valor = raw_data['pluvio_sum_hoy']['valor'] 
-        formatted_data['pluvio_sum_hoy'] = {
-            # --- ¡CORRECCIÓN! ---
-            'valor_str': f"{round(valor, 1)} mm", 
-            'valor_num': round(valor, 1),
-            'timestamp': 'Acum. de hoy'
-        }
+        v = raw_data['pluvio_sum_hoy']['valor']
+        formatted_data['pluvio_sum_hoy'] = {'valor_str': f"{round(v, 1)} mm", 'valor_num': round(v, 1), 'timestamp': 'Acum. de hoy'}
 
     if raw_data.get('temperatura'):
-        valor = raw_data['temperatura']['valor'] 
-        formatted_data['temperatura'] = {
-            'valor_str': f"{round(valor, 1)} °C", 
-            'valor_num': round(valor, 1),
-            'timestamp': format_timestamp(raw_data['temperatura']['timestamp'])
-        }
+        v = raw_data['temperatura']['valor']
+        formatted_data['temperatura'] = {'valor_str': f"{round(v, 1)} °C", 'valor_num': round(v, 1), 'timestamp': format_timestamp(raw_data['temperatura']['timestamp'])}
+        
     if raw_data.get('nivel_max_hoy'):
-        valor = raw_data['nivel_max_hoy']['valor'] 
-        formatted_data['nivel_max_hoy'] = {
-            # --- ¡CORRECCIÓN! ---
-            'valor_str': f"{round(valor, 2)} m", 
-            'valor_num': round(valor, 2),
-            'timestamp': 'Máx. de hoy'
-        }
+        v = raw_data['nivel_max_hoy']['valor']
+        formatted_data['nivel_max_hoy'] = {'valor_str': f"{round(v, 2)} m", 'valor_num': round(v, 2), 'timestamp': 'Máx. de hoy'}
+        
     if raw_data.get('viento_vel') and raw_data.get('viento_dir'):
-        vel = raw_data['viento_vel']['valor'] 
-        dir = raw_data['viento_dir']['valor'] 
-        formatted_data['viento'] = {
-            'vel_str': f"{round(vel, 1)} km/h",
-            'dir_str': f"{round(dir)}°", 
-            'dir_num': round(dir),
-            'timestamp': format_timestamp(raw_data['viento_vel']['timestamp'])
-        }
+        vel = raw_data['viento_vel']['valor']; dir = raw_data['viento_dir']['valor']
+        formatted_data['viento'] = {'vel_str': f"{round(vel, 1)} km/h", 'dir_str': f"{round(dir)}°", 'dir_num': round(dir), 'timestamp': format_timestamp(raw_data['viento_vel']['timestamp'])}
 
-    if raw_data.get('bateria'):
-        valor = raw_data['bateria']['valor'] 
-        formatted_data['bateria'] = {
-            'valor_str': f"{round(valor, 2)} V", 
-            'valor_num': round(valor, 2),
-            'timestamp': format_timestamp(raw_data['bateria']['timestamp'])
-        }
     if raw_data.get('presion'):
-        valor = raw_data['presion']['valor'] 
-        formatted_data['presion'] = {
-            'valor_str': f"{round(valor, 1)} hPa", 
-            'valor_num': round(valor, 1),
-            'timestamp': format_timestamp(raw_data['presion']['timestamp'])
-        }
+        v = raw_data['presion']['valor']
+        formatted_data['presion'] = {'valor_str': f"{round(v, 1)} hPa", 'valor_num': round(v, 1), 'timestamp': format_timestamp(raw_data['presion']['timestamp'])}
+
+    # === FILTRO DE BATERÍA (DASHBOARD) ===
+    # Solo agregamos la batería al diccionario si NO es restringido
+    if current_user.is_authenticated and current_user.role != 'restricted':
+        if raw_data.get('bateria'):
+            v = raw_data['bateria']['valor']
+            formatted_data['bateria'] = {
+                'valor_str': f"{round(v, 2)} V", 
+                'valor_num': round(v, 2), 
+                'timestamp': format_timestamp(raw_data['bateria']['timestamp'])
+            }
+    # =====================================
 
     return formatted_data
 
