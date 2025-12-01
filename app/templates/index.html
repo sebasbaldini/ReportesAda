@@ -21,6 +21,23 @@
         .leaflet-popup-content hr { margin: 8px 0; }
         .popup-data { font-weight: bold; color: #0d6efd; }
         .popup-loading { font-style: italic; color: #888; }
+
+        /* === NUEVO ESTILO: Etiquetas de nombre de las EMAs en el mapa === */
+        .leaflet-tooltip.ema-label {
+            background-color: transparent; /* Fondo transparente */
+            border: none;                  /* Sin bordes */
+            box-shadow: none;              /* Sin sombra cuadrada */
+            font-weight: bold;             /* Texto en negrita */
+            font-size: 12px;               /* Tamaño legible */
+            color: #000;                   /* Color del texto (negro) */
+            
+            /* Borde blanco alrededor de las letras para que se lea bien sobre el mapa */
+            text-shadow: 
+                -1px -1px 0 #fff,  
+                 1px -1px 0 #fff,
+                -1px  1px 0 #fff,
+                 1px  1px 0 #fff;
+        }
     </style>
 {% endblock %}
 
@@ -50,9 +67,11 @@
         try {
             // === 1. Obtener datos de Flask ===
             const emaLocations = {{ ema_locations | tojson }};
+            const currentDbKey = "{{ current_db_key }}"; // Obtenemos la DB actual
             
             console.log("EMAs recibidas:", emaLocations.length); 
-            
+            console.log("Base de datos actual:", currentDbKey);
+
             const owmApiKey = {{ owm_api_key | tojson }};
             const mapCenter = [-34.6, -58.8]; 
             const mapZoom = 10;
@@ -82,8 +101,6 @@
                 iconSize: [12, 12] 
             });
             
-            // --- ¡CORREGIDO! ---
-            // (Usamos la API del Dashboard, que es la correcta)
             const summaryApiUrl = "{{ url_for('main.get_dashboard_data', ema_id=0) }}";
 
             if (emaLocations && emaLocations.length > 0) {
@@ -97,7 +114,25 @@
                             ema_nombre: ema.nombre,
                             ema_descripcion: ema.descripcion
                         });
+
+                        // === LÓGICA DE ETIQUETA (TEXTO) ===
+                        // Por defecto usamos el nombre
+                        let labelText = ema.nombre;
+
+                        // Si estamos en la DB principal (Reconquista), intentamos usar la descripción
+                        if (currentDbKey === 'db_principal') {
+                            labelText = ema.descripcion ? ema.descripcion : ema.nombre;
+                        }
+
+                        // === AGREGAR ETIQUETA PERMANENTE ===
+                        marker.bindTooltip(labelText, {
+                            permanent: true,       // Siempre visible
+                            direction: 'top',      // Arriba del punto
+                            className: 'ema-label',// Clase CSS definida arriba
+                            offset: [0, -6]        // Pequeño ajuste vertical
+                        });
                         
+                        // === EVENTO CLICK (POPUP) ===
                         marker.on('click', function (e) {
                             const clickedMarker = e.target;
                             const emaId = clickedMarker.options.ema_id;
@@ -128,9 +163,6 @@
                                     `;
                                     
                                     let dataFound = false;
-                                    
-                                    // (Buscamos los datos que SÍ existen en CUALQUIER DB)
-                                    // (El servicio ahora los prepara)
                                     
                                     if (data.pluvio_sum_hoy) {
                                         finalHtml += `<p>Lluvia (Hoy): <span class="popup-data">${data.pluvio_sum_hoy.valor_str}</span></p>`;

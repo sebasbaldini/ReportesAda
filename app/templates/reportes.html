@@ -1,4 +1,3 @@
-<!-- app/templates/reportes.html (MODIFICADO) -->
 {% extends "base.html" %}
 
 {% block title %}Generador de Reportes{% endblock %}
@@ -7,17 +6,16 @@
 <div class="card shadow-sm border-0">
 <div class="card-body p-4 p-md-5">
 
-    <h1 class="h3 mb-3">Generador de Reportes</h1>
+    <h1 class="h3 mb-3">Generador de Reportes - {{ current_db_name }}</h1>
+    
     <p class="text-muted mb-4">Seleccione los filtros para descargar el reporte en formato Excel.</p>
 
     <form action="{{ url_for('main.download_report') }}" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}"/>
 
-        <!-- (Usamos 'row' y 'col-md-6' para poner los selectores en 2 columnas en escritorio) -->
         <div class="row g-3">
             <div class="col-12">
                 <label for="ema_select" class="form-label fw-bold">1. Seleccione una EMA:</label>
-                <!-- (Usamos 'form-select' para los <select>) -->
                 <select id="ema_select" name="ema_id" class="form-select form-select-lg" required 
                         data-sensors-url="{{ url_for('main.get_sensors_for_ema', ema_id='temp-id') }}">
                     <option value="" disabled selected>-- Seleccione una EMA --</option>
@@ -30,7 +28,6 @@
 
             <div class="col-12">
                 <label class="form-label fw-bold">2. Seleccione Sensor(es) y Procesamiento:</label>
-                <!-- (El JS llenará este contenedor) -->
                 <div id="sensor-container" class="vstack gap-2"> 
                     <p id="sensor-placeholder" class="text-muted">Por favor, seleccione una EMA primero.</p>
                 </div>
@@ -41,7 +38,6 @@
             
             <div class="col-md-6">
                 <label for="fecha_inicio" class="form-label fw-bold">3. Fecha de INICIO:</label>
-                <!-- (Usamos 'form-control' para los <input>) -->
                 <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" required>
             </div>
             <div class="col-md-6">
@@ -59,7 +55,6 @@
 </div>
 </div>
 
-<!-- === JAVASCRIPT (MODIFICADO) === -->
 <script>
     let currentSensorList = [];
 
@@ -70,38 +65,53 @@
         const sensorPlaceholder = document.getElementById('sensor-placeholder');
         const addSensorBtn = document.getElementById('add-sensor-btn');
 
-        // --- MODIFICADO: addSensorRow (para que cree clases de Bootstrap) ---
         function addSensorRow() {
-            // Usamos 'input-group' de Bootstrap
             const row = document.createElement('div');
-            row.className = 'input-group sensor-row'; // 'input-group' es la clase clave
+            row.className = 'sensor-row mb-2'; // Contenedor principal de la fila
+
+            // Grupo Input para Selectores
+            const inputGroup = document.createElement('div');
+            inputGroup.className = 'input-group';
 
             const sensorSelect = document.createElement('select');
             sensorSelect.name = 'sensor_info';
-            sensorSelect.className = 'form-select'; // <- Clase de Bootstrap
+            sensorSelect.className = 'form-select'; 
             sensorSelect.required = true;
 
             const processSelect = document.createElement('select');
             processSelect.name = 'process_type';
-            processSelect.className = 'form-select'; // <- Clase de Bootstrap
+            processSelect.className = 'form-select'; 
             processSelect.required = true;
 
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
-            removeBtn.className = 'btn btn-outline-danger'; // <- Clase de Bootstrap
-            removeBtn.innerHTML = '<i class="bi bi-trash"></i>'; // Ícono
+            removeBtn.className = 'btn btn-outline-danger'; 
+            removeBtn.innerHTML = '<i class="bi bi-trash"></i>'; 
             removeBtn.addEventListener('click', function() { row.remove(); });
 
+            // Elemento para mostrar la fecha de inicio
+            const dateInfo = document.createElement('small');
+            dateInfo.className = 'text-muted d-block ms-1 mt-1';
+            dateInfo.style.fontSize = '0.85em';
+            dateInfo.innerHTML = '&nbsp;'; // Espacio vacío por defecto
+
             sensorSelect.innerHTML = '<option value="" disabled selected>-- Seleccione un sensor --</option>';
+            
+            // Llenar opciones
             currentSensorList.forEach(sensor => {
                 const option = document.createElement('option'); 
                 option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
                 option.dataset.searchText = sensor.search_text; 
+                
+                // CAMBIO 2: Guardamos la fecha en el dataset
+                if (sensor.fecha_inicio) {
+                    option.dataset.startDate = sensor.fecha_inicio;
+                }
+
                 option.textContent = sensor.nombre;
                 sensorSelect.appendChild(option);
             });
 
-            // (Lógica interna para 'actualizarOpcionesDeProceso' - sin cambios)
             function actualizarOpcionesDeProceso(selectedOption) {
                 const searchText = selectedOption ? (selectedOption.dataset.searchText || "") : "";
                 processSelect.innerHTML = ''; 
@@ -119,39 +129,57 @@
                 }
             }
 
+            // Evento al cambiar sensor: Mostrar fecha y actualizar procesos
             sensorSelect.addEventListener('change', function() {
                 const selectedOption = this.options[this.selectedIndex];
                 actualizarOpcionesDeProceso(selectedOption);
+                
+                // CAMBIO 3: Mostrar la fecha
+                if (selectedOption && selectedOption.dataset.startDate) {
+                    dateInfo.innerHTML = `<i class="bi bi-calendar-event"></i> Datos disponibles desde: <strong>${selectedOption.dataset.startDate}</strong>`;
+                    dateInfo.classList.add('text-primary');
+                    dateInfo.classList.remove('text-muted');
+                } else {
+                    dateInfo.innerHTML = 'Sin información de fecha histórica.';
+                    dateInfo.classList.add('text-muted');
+                    dateInfo.classList.remove('text-primary');
+                }
             });
             
+            // Autoseleccionar si hay pocos
             if (sensorSelect.options.length > 1) {
+                 // Disparar evento manualmente para cargar fecha del primero
                  actualizarOpcionesDeProceso(sensorSelect.options[1]);
                  sensorSelect.value = sensorSelect.options[1].value;
+                 // Simular el cambio para mostrar la fecha
+                 sensorSelect.dispatchEvent(new Event('change'));
             } else {
                  actualizarOpcionesDeProceso(null);
             }
             
-            row.appendChild(sensorSelect);
-            row.appendChild(processSelect);
-            row.appendChild(removeBtn);
+            inputGroup.appendChild(sensorSelect);
+            inputGroup.appendChild(processSelect);
+            inputGroup.appendChild(removeBtn);
+            
+            row.appendChild(inputGroup);
+            row.appendChild(dateInfo); // Agregar el texto de fecha debajo
+            
             sensorContainer.appendChild(row);
         }
 
-        // --- Listener del selector de EMA (MODIFICADO para ocultar placeholder) ---
         emaSelect.addEventListener('change', function() {
             const selectedEmaId = this.value.trim();
-            sensorContainer.innerHTML = ''; // Limpiar todo (incluido el placeholder)
+            sensorContainer.innerHTML = ''; 
             addSensorBtn.style.display = 'none'; 
             currentSensorList = [];
             
             if (!selectedEmaId) {
-                sensorContainer.appendChild(sensorPlaceholder); // Poner el placeholder
+                sensorContainer.appendChild(sensorPlaceholder);
                 return;
             }
             
-            // Mostrar "Cargando"
             const loadingP = document.createElement('p');
-            loadingP.textContent = 'Cargando sensores...';
+            loadingP.textContent = 'Cargando sensores y fechas históricas...';
             sensorContainer.appendChild(loadingP);
 
             const baseUrl = emaSelect.dataset.sensorsUrl;
@@ -161,7 +189,7 @@
                 .then(response => response.json())
                 .then(sensores => {
                     currentSensorList = sensores; 
-                    sensorContainer.innerHTML = ''; // Limpiar "Cargando..."
+                    sensorContainer.innerHTML = ''; 
                     if (sensores && sensores.length > 0) {
                         addSensorRow(); 
                         addSensorBtn.style.display = 'block'; 
