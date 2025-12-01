@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Página Principal - SIMPARH RECONQUISTA{% endblock %}
+{% block title %}Página Principal - SIMPARH {{ current_db_name }}{% endblock %}
 
 {% block head %}
     {{ super() }}
@@ -22,7 +22,7 @@
         .popup-data { font-weight: bold; color: #0d6efd; }
         .popup-loading { font-style: italic; color: #888; }
 
-        /* === NUEVO ESTILO: Etiquetas de nombre de las EMAs en el mapa === */
+        /* Estilo para las etiquetas de nombre de las EMAs en el mapa */
         .leaflet-tooltip.ema-label {
             background-color: transparent; /* Fondo transparente */
             border: none;                  /* Sin bordes */
@@ -44,7 +44,8 @@
 
 {% block content %}
     <div class="text-center pt-3 pb-4">
-        <h1 class="display-4 fw-bold">SIMPARH RECONQUISTA</h1>
+        <h1 class="display-4 fw-bold">SIMPARH {{ current_db_name | upper }}</h1>
+        
         <p class="lead text-muted">Plataforma de monitoreo y gestión de datos hidrometeorológicos.</p>
     </div>
 
