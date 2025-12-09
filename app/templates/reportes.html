@@ -7,7 +7,6 @@
 <div class="card-body p-4 p-md-5">
 
     <h1 class="h3 mb-3">Generador de Reportes - {{ current_db_name }}</h1>
-    
     <p class="text-muted mb-4">Seleccione los filtros para descargar el reporte en formato Excel.</p>
 
     <form action="{{ url_for('main.download_report') }}" method="POST">
@@ -27,7 +26,7 @@
             </div>
 
             <div class="col-12">
-                <label class="form-label fw-bold">2. Seleccione Sensor(es) y Procesamiento:</label>
+                <label class="form-label fw-bold">2. Seleccione Sensor y Procesamiento:</label>
                 <div id="sensor-container" class="vstack gap-2"> 
                     <p id="sensor-placeholder" class="text-muted">Por favor, seleccione una EMA primero.</p>
                 </div>
@@ -67,9 +66,8 @@
 
         function addSensorRow() {
             const row = document.createElement('div');
-            row.className = 'sensor-row mb-2'; // Contenedor principal de la fila
+            row.className = 'sensor-row mb-2';
 
-            // Grupo Input para Selectores
             const inputGroup = document.createElement('div');
             inputGroup.className = 'input-group';
 
@@ -89,69 +87,67 @@
             removeBtn.innerHTML = '<i class="bi bi-trash"></i>'; 
             removeBtn.addEventListener('click', function() { row.remove(); });
 
-            // Elemento para mostrar la fecha de inicio
             const dateInfo = document.createElement('small');
             dateInfo.className = 'text-muted d-block ms-1 mt-1';
             dateInfo.style.fontSize = '0.85em';
-            dateInfo.innerHTML = '&nbsp;'; // Espacio vacío por defecto
+            dateInfo.innerHTML = '&nbsp;';
 
             sensorSelect.innerHTML = '<option value="" disabled selected>-- Seleccione un sensor --</option>';
             
-            // Llenar opciones
             currentSensorList.forEach(sensor => {
                 const option = document.createElement('option'); 
+                // Value: id|MetricaReal|NombreDisplay
                 option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
-                option.dataset.searchText = sensor.search_text; 
                 
-                // CAMBIO 2: Guardamos la fecha en el dataset
-                if (sensor.fecha_inicio) {
-                    option.dataset.startDate = sensor.fecha_inicio;
-                }
-
+                // Guardamos la métrica real (Ej: 'Pluviometrica') para usarla en el IF
+                option.dataset.metric = sensor.table_name; 
+                
+                if (sensor.fecha_inicio) option.dataset.startDate = sensor.fecha_inicio;
                 option.textContent = sensor.nombre;
                 sensorSelect.appendChild(option);
             });
 
             function actualizarOpcionesDeProceso(selectedOption) {
-                const searchText = selectedOption ? (selectedOption.dataset.searchText || "") : "";
+                // Usamos la métrica real de la base de datos, más seguro
+                const metric = selectedOption ? (selectedOption.dataset.metric || "") : "";
                 processSelect.innerHTML = ''; 
-                if (searchText.includes('pluvio')) {
+                
+                // === LÓGICA DE OPCIONES CORREGIDA ===
+                if (metric.includes('Pluvio')) {
+                    // LLUVIA
                     processSelect.innerHTML += '<option value="raw">Dato Crudo</option>';
-                    processSelect.innerHTML += '<option value="sum_hourly">Acumulado por Hora</option>'; 
-                    processSelect.innerHTML += '<option value="pluvio_sum">Acumulado Diario</option>';
-                } else if (searchText.includes('limni') || searchText.includes('freati')) {
+                    processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>';
+                    processSelect.innerHTML += '<option value="pluvio_sum" selected>Acumulado Diario</option>';
+                } else if (metric.includes('Limni') || metric.includes('Freat')) {
+                    // NIVEL
                     processSelect.innerHTML += '<option value="raw">Dato Crudo</option>';
-                    processSelect.innerHTML += '<option value="max_hourly">Máximo por Hora</option>'; 
-                    processSelect.innerHTML += '<option value="nivel_max">Máximo Diario</option>';
+                    processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>';
+                    processSelect.innerHTML += '<option value="nivel_max">Nivel Máximo Diario</option>';
                 } else {
+                    // RESTO
                     processSelect.innerHTML += '<option value="raw" selected>Dato Crudo</option>';
                     processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>'; 
                 }
             }
 
-            // Evento al cambiar sensor: Mostrar fecha y actualizar procesos
             sensorSelect.addEventListener('change', function() {
                 const selectedOption = this.options[this.selectedIndex];
                 actualizarOpcionesDeProceso(selectedOption);
                 
-                // CAMBIO 3: Mostrar la fecha
                 if (selectedOption && selectedOption.dataset.startDate) {
-                    dateInfo.innerHTML = `<i class="bi bi-calendar-event"></i> Datos disponibles desde: <strong>${selectedOption.dataset.startDate}</strong>`;
-                    dateInfo.classList.add('text-primary');
-                    dateInfo.classList.remove('text-muted');
+                    dateInfo.innerHTML = `<i class="bi bi-calendar-event"></i> Datos desde: <strong>${selectedOption.dataset.startDate}</strong>`;
+                    dateInfo.classList.remove('text-muted'); dateInfo.classList.add('text-primary');
                 } else {
-                    dateInfo.innerHTML = 'Sin información de fecha histórica.';
-                    dateInfo.classList.add('text-muted');
-                    dateInfo.classList.remove('text-primary');
+                    dateInfo.innerHTML = 'Sin fecha histórica.';
+                    dateInfo.classList.add('text-muted'); dateInfo.classList.remove('text-primary');
                 }
             });
             
-            // Autoseleccionar si hay pocos
+            // Autoseleccionar el segundo si existe (el primero es "--Seleccione--")
             if (sensorSelect.options.length > 1) {
-                 // Disparar evento manualmente para cargar fecha del primero
-                 actualizarOpcionesDeProceso(sensorSelect.options[1]);
                  sensorSelect.value = sensorSelect.options[1].value;
-                 // Simular el cambio para mostrar la fecha
+                 // Forzamos la actualización de opciones
+                 actualizarOpcionesDeProceso(sensorSelect.options[1]);
                  sensorSelect.dispatchEvent(new Event('change'));
             } else {
                  actualizarOpcionesDeProceso(null);
@@ -160,10 +156,8 @@
             inputGroup.appendChild(sensorSelect);
             inputGroup.appendChild(processSelect);
             inputGroup.appendChild(removeBtn);
-            
             row.appendChild(inputGroup);
-            row.appendChild(dateInfo); // Agregar el texto de fecha debajo
-            
+            row.appendChild(dateInfo);
             sensorContainer.appendChild(row);
         }
 
@@ -173,17 +167,13 @@
             addSensorBtn.style.display = 'none'; 
             currentSensorList = [];
             
-            if (!selectedEmaId) {
-                sensorContainer.appendChild(sensorPlaceholder);
-                return;
-            }
+            if (!selectedEmaId) { sensorContainer.appendChild(sensorPlaceholder); return; }
             
             const loadingP = document.createElement('p');
-            loadingP.textContent = 'Cargando sensores y fechas históricas...';
+            loadingP.textContent = 'Cargando sensores...';
             sensorContainer.appendChild(loadingP);
 
-            const baseUrl = emaSelect.dataset.sensorsUrl;
-            const urlToFetch = baseUrl.replace('temp-id', encodeURIComponent(selectedEmaId));
+            const urlToFetch = emaSelect.dataset.sensorsUrl.replace('temp-id', encodeURIComponent(selectedEmaId));
             
             fetch(urlToFetch) 
                 .then(response => response.json())
@@ -194,18 +184,16 @@
                         addSensorRow(); 
                         addSensorBtn.style.display = 'block'; 
                     } else {
-                        sensorContainer.innerHTML = '<p class="text-muted">Esta EMA no tiene sensores activos registrados.</p>';
+                        sensorContainer.innerHTML = '<p class="text-muted">Sin sensores activos.</p>';
                     }
                 })
                 .catch(error => {
-                    console.error('Error al buscar datos de la EMA:', error);
-                    sensorContainer.innerHTML = '<p class="text-danger">Error al cargar sensores.</p>';
+                    console.error('Error:', error);
+                    sensorContainer.innerHTML = '<p class="text-danger">Error de carga.</p>';
                 });
         });
         
-        addSensorBtn.addEventListener('click', function() {
-            addSensorRow();
-        });
+        addSensorBtn.addEventListener('click', function() { addSensorRow(); });
     });
 </script>
 {% endblock %}

@@ -1,0 +1,238 @@
+import pandas as pd
+import io
+from datetime import datetime, timedelta
+from sqlalchemy import func, or_, distinct
+from .extensions import db
+from .models import EstacionSimparh, MedicionEMA
+
+def create_excel_from_dataframe(df):
+    output = io.BytesIO()
+    df_clean = df.loc[:, ~df.columns.duplicated()]
+    # Eliminamos columnas técnicas si existen
+    cols_drop = ['key_unica_mediciones_ema', 'geom', 'id']
+    for c in cols_drop:
+        if c in df_clean.columns: df_clean.drop(columns=[c], inplace=True)
+    
+    # Reordenamos para que Partido y Descripción aparezcan primero (si existen)
+    cols = df_clean.columns.tolist()
+    first_cols = ['id_proyecto', 'partido', 'descripcion', 'Sensor', 'fecha', 'dia', 'hora', 'valor']
+    new_order = [c for c in first_cols if c in cols] + [c for c in cols if c not in first_cols]
+    df_clean = df_clean[new_order]
+
+    df_clean.to_excel(output, index=False, sheet_name='Datos', engine='openpyxl')
+    return output
+
+def get_all_stations_repo():
+    return EstacionSimparh.query.order_by(EstacionSimparh.ubicacion).all()
+
+def get_sensors_for_station_repo(id_proyecto_str):
+    mapa_flags = [
+        ('pluv', 1, 'Pluviómetro', 'Pluviometrica'),
+        ('limn', 2, 'Limnímetro (Nivel)', 'Limnigrafica'),
+        ('viento', 3, 'Anemómetro (Velocidad)', 'Anemometrica'),
+        ('viento', 4, 'Veleta (Dirección)', 'Direccion Viento'),
+        ('temp_hum', 5, 'Temperatura Aire', 'Temp Atmosferica'),
+        ('temp_hum', 6, 'Humedad', 'Humedad'),
+        ('freat', 7, 'Freatímetro', 'Freatimetrica'),
+        ('rad_solar', 8, 'Radiación Solar', 'Piranometrica')
+    ]
+    
+    sensors = []
+
+    if str(id_proyecto_str) == 'todas':
+        seen = set()
+        for _, sid, nombre, metrica in mapa_flags:
+            if metrica not in seen:
+                sensors.append({'id': sid, 'nombre': nombre, 'table_name': metrica, 'search_text': nombre.lower(), 'fecha_inicio': 'N/A'})
+                seen.add(metrica)
+        
+        extras = [
+            (99, 'Batería', 'Bateria'), (98, 'Presión', 'Barometrica'),
+            (90, 'Calidad - Conductividad', 'Conductividad'), 
+            (91, 'Calidad - pH', 'PH'),
+            (92, 'Calidad - Turbidez', 'Turbidez'),
+            (93, 'Calidad - Temp. Agua', 'Temp Agua')
+        ]
+        for sid, nom, met in extras:
+            sensors.append({'id': sid, 'nombre': nom, 'table_name': met, 'search_text': nom.lower(), 'fecha_inicio': 'N/A'})
+        return sensors
+
+    estacion = EstacionSimparh.query.filter_by(id_proyecto=id_proyecto_str).first()
+    if not estacion: return []
+
+    for attr, sid, nombre, metrica in mapa_flags:
+        val = getattr(estacion, attr)
+        is_active = False
+        if val is True: is_active = True
+        elif isinstance(val, str) and val.lower() in ['true', 't', '1', 's', 'si', 'yes']: is_active = True
+        
+        if is_active:
+            fecha_inicio = "N/A"
+            try:
+                min_date = db.session.query(func.min(MedicionEMA.fecha))\
+                    .filter_by(id_proyecto=id_proyecto_str, metrica=metrica).scalar()
+                if min_date: fecha_inicio = min_date.strftime('%Y-%m-%d')
+            except: pass
+            sensors.append({'id': sid, 'nombre': nombre, 'table_name': metrica, 'search_text': nombre.lower(), 'fecha_inicio': fecha_inicio})
+
+    tiene_calidad = False
+    val_cal = getattr(estacion, 'calidad', None)
+    if val_cal is True: tiene_calidad = True
+    elif isinstance(val_cal, str) and val_cal.lower() in ['true', 't', '1', 's', 'si', 'yes']: tiene_calidad = True
+
+    try:
+        res = db.session.query(distinct(MedicionEMA.metrica)).filter_by(id_proyecto=id_proyecto_str).all()
+        metricas_reales_en_db = [r[0] for r in res if r[0]]
+        
+        terminos_calidad = {
+            'Conduct': 'Calidad - Conductividad',
+            'PH': 'Calidad - pH',
+            'Turbid': 'Calidad - Turbidez',
+            'Temp Agua': 'Calidad - Temp. Agua',
+            'Bateria': 'Batería',
+            'Barometrica': 'Presión Barométrica',
+            'OD': 'Calidad - Oxígeno'
+        }
+
+        for m_real in metricas_reales_en_db:
+            if any(s['table_name'] == m_real for s in sensors): continue
+
+            nombre_display = None
+            for key, display in terminos_calidad.items():
+                if key.lower() in m_real.lower():
+                    nombre_display = display if 'Calidad' in display else f"{display} ({m_real})"
+                    if 'Temp Agua' in m_real: nombre_display = 'Calidad - Temp. Agua'
+                    break
+            
+            if nombre_display:
+                fecha_inicio = "N/A"
+                try:
+                    md = db.session.query(func.min(MedicionEMA.fecha)).filter_by(id_proyecto=id_proyecto_str, metrica=m_real).scalar()
+                    if md: fecha_inicio = md.strftime('%Y-%m-%d')
+                except: pass
+                
+                sensors.append({
+                    'id': 90 + len(sensors), 
+                    'nombre': nombre_display, 
+                    'table_name': m_real, 
+                    'search_text': nombre_display.lower(), 
+                    'fecha_inicio': fecha_inicio
+                })
+
+    except Exception as e:
+        print(f"Error query metricas: {e}")
+
+    if tiene_calidad:
+        defaults = [
+            ('PH', 'Calidad - pH'),
+            ('Conductividad', 'Calidad - Conductividad'),
+            ('Turbidez', 'Calidad - Turbidez'),
+            ('Temp Agua', 'Calidad - Temp. Agua')
+        ]
+        for m_db, nom_disp in defaults:
+            ya_esta = False
+            for s in sensors:
+                if s['table_name'] == m_db or s['nombre'] == nom_disp:
+                    ya_esta = True
+                    break
+            if not ya_esta:
+                sensors.append({
+                    'id': 100 + len(sensors), 
+                    'nombre': nom_disp + " (Sin Datos)", 
+                    'table_name': m_db, 
+                    'search_text': nom_disp.lower(), 
+                    'fecha_inicio': 'N/A'
+                })
+
+    return sensors
+
+def get_dashboard_data_repo(id_proyecto_str):
+    data = {}
+    metricas = {
+        'temperatura': ('Temp Atmosferica', 'last'), 
+        'nivel_max_hoy': ('Limnigrafica', 'max_today'),
+        'pluvio_sum_hoy': ('Pluviometrica', 'sum_today'), 
+        'viento_vel': ('Anemometrica', 'last'),
+        'viento_dir': ('Direccion Viento', 'last'), 
+        'presion': ('Barometrica', 'last'), 
+        'bateria': ('Bateria', 'last')
+    }
+    hoy = datetime.now().date()
+    
+    for key, (metrica, modo) in metricas.items():
+        try:
+            q = db.session.query(MedicionEMA).filter_by(id_proyecto=id_proyecto_str, metrica=metrica)
+            res = None; ts = None
+            if modo == 'last':
+                rec = q.order_by(MedicionEMA.fecha.desc()).first()
+                if rec: res = rec.valor; ts = rec.fecha
+            elif modo == 'max_today':
+                res = q.filter(func.date(MedicionEMA.fecha) == hoy).with_entities(func.max(MedicionEMA.valor)).scalar(); ts = "Hoy"
+            elif modo == 'sum_today':
+                res = q.filter(func.date(MedicionEMA.fecha) == hoy).with_entities(func.sum(MedicionEMA.valor)).scalar(); ts = "Hoy"
+            if res is not None:
+                ts_str = ts.strftime('%H:%M %d/%m') if isinstance(ts, datetime) else ts
+                if key == 'viento_vel': data['viento'] = {'vel_str': f"{round(res,1)} km/h", 'timestamp': ts_str}
+                elif key == 'viento_dir': 
+                    if 'viento' in data: data['viento']['dir_num'] = res; data['viento']['dir_str'] = f"{int(res)}°"
+                else: 
+                    unit = 'mm' if 'pluvio' in key else 'm' if 'nivel' in key else '°C' if 'temp' in key else 'hPa' if 'presion' in key else 'V'
+                    data[key] = {'valor_num': res, 'valor_str': f"{round(res, 2)} {unit}", 'timestamp': ts_str}
+        except: pass
+    return data
+
+def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica, tipo_proceso='raw'):
+    if isinstance(fecha_fin, str):
+        fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
+    
+    # --- MODIFICACIÓN IMPORTANTE: Unimos con la tabla de Estaciones ---
+    query = db.session.query(
+        MedicionEMA.fecha, 
+        MedicionEMA.valor, 
+        MedicionEMA.id_proyecto,
+        EstacionSimparh.partido,               # Traemos Partido
+        EstacionSimparh.ubicacion.label('descripcion') # Traemos Descripción (como 'descripcion')
+    ).join(EstacionSimparh, MedicionEMA.id_proyecto == EstacionSimparh.id_proyecto)
+    
+    # Filtros
+    query = query.filter(MedicionEMA.fecha >= fecha_inicio, MedicionEMA.fecha <= fecha_fin)
+    
+    if metrica == 'Calidad':
+        query = query.filter(or_(MedicionEMA.metrica.ilike('%Calidad%'), MedicionEMA.metrica.ilike('%Conduct%'), MedicionEMA.metrica.ilike('%Turbiedad%'), MedicionEMA.metrica.ilike('%Ph%')))
+    else:
+        query = query.filter(MedicionEMA.metrica == metrica)
+
+    if str(id_proyecto_str) != 'todas':
+        query = query.filter(MedicionEMA.id_proyecto == id_proyecto_str)
+        
+    query = query.order_by(MedicionEMA.fecha.asc())
+    
+    try:
+        df = pd.read_sql(query.statement, db.session.connection())
+    except Exception as e:
+        print(f"Error SQL: {e}")
+        return pd.DataFrame()
+    
+    if df.empty: return df
+    
+    # --- PROCESAMIENTO (Incluyendo las nuevas columnas en el agrupado) ---
+    
+    # Columnas que siempre queremos conservar
+    meta_cols = ['id_proyecto', 'partido', 'descripcion']
+
+    if tipo_proceso == 'pluvio_sum':
+        df['dia'] = df['fecha'].dt.date
+        # Agrupamos por meta_cols + dia para no perder la info
+        df = df.groupby(meta_cols + ['dia'])['valor'].sum().reset_index()
+        
+    elif tipo_proceso == 'nivel_max':
+        df['dia'] = df['fecha'].dt.date
+        df = df.groupby(meta_cols + ['dia'])['valor'].max().reset_index()
+        
+    elif tipo_proceso == 'avg_hourly':
+        df['hora'] = df['fecha'].dt.floor('H')
+        df = df.groupby(meta_cols + ['hora'])['valor'].mean().reset_index()
+        
+    # Si es 'raw', las columnas partido y descripcion ya vienen en el df original del JOIN
+        
+    return df

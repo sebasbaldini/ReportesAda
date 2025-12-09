@@ -4,8 +4,9 @@ psycopg2-binary
 flask-login
 werkzeug
 openpyxl
-pyodbc
-
+Flask-SQLAlchemy
+GeoAlchemy2
+Shapely
 # hay q instalar el obdc driver de sql versión 17
 # para que funcione la parte del simpath. 
 # se descarga desde la pagina oficial

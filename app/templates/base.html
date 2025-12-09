@@ -1,120 +1,93 @@
-<!-- app/templates/base.html (MODIFICADO) -->
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Reportes SIMPARH{% endblock %}</title>
+    <title>{% block title %}SIMPARH{% endblock %}</title>
 
-    <!-- (Links de CSS: Bootstrap, Íconos, Leaflet, tu style.css) -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-    
-    <!-- (Usamos el CDN de unpkg que SÍ funcionaba) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     
     {% block head %}{% endblock %}
 </head>
-<body class="bg-light"> 
+<body> 
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top shadow-sm">
-        <div class="container-fluid">
+    <div id="wrapper">
+        
+        {% if current_user.is_authenticated %}
+        <div id="sidebar-wrapper">
             
-            <a class="navbar-brand" 
-               href="{% if current_user.is_authenticated %}{{ url_for('main.index') }}{% else %}{{ url_for('auth.login') }}{% endif %}">
-                <i class="bi bi-broadcast"></i> 
-                SIMPARH
-            </a>
+            <div class="sidebar-heading">
+                <a href="{{ url_for('main.index') }}" class="text-decoration-none text-white">
+                    <i class="bi bi-broadcast"></i> SIMPARH
+                </a>
+            </div>
+            
+            <div class="list-group list-group-flush">
+                
+                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action bg-dark text-white {% if request.endpoint == 'main.custom_chart_page' %}active{% endif %}">
+                    <i class="bi bi-graph-up-arrow me-2"></i> Gráficos
+                </a>
 
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="mainNavbar">
+                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action bg-dark text-white {% if request.endpoint == 'main.chart_dashboard_page' %}active{% endif %}">
+                    <i class="bi bi-speedometer2 me-2"></i> Dashboard
+                </a>
+
+                <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action bg-dark text-white {% if request.endpoint == 'main.report_page' %}active{% endif %}">
+                    <i class="bi bi-file-earmark-spreadsheet me-2"></i> Reportes
+                </a>
                 
-                <!-- Menú de la App (izquierda) -->
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                    {% if current_user.is_authenticated %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('main.report_page') }}"><i class="bi bi-file-earmark-spreadsheet"></i> Reportes</a>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" id="navbarDropdownGraficos" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="bi bi-graph-up"></i> Gráficos
-                            </a>
-                            <ul class="dropdown-menu" aria-labelledby="navbarDropdownGraficos">
-                                <li><a class="dropdown-item" href="{{ url_for('main.chart_dashboard_page') }}">Dashboard (Estado Actual)</a></li>
-                                <li><a class="dropdown-item" href="{{ url_for('main.custom_chart_page') }}">Gráficos Personalizados</a></li>
-                            </ul>
-                        </li>
-                    {% endif %}
-                </ul>
+                <button class="list-group-item list-group-item-action bg-dark text-white" type="button" data-bs-toggle="collapse" data-bs-target="#contactInfoCollapse" aria-expanded="false" aria-controls="contactInfoCollapse">
+                    <i class="bi bi-person-lines-fill me-2"></i> Contacto <i class="bi bi-chevron-down ms-auto" style="font-size: 0.8em;"></i>
+                </button>
                 
-                <!-- Menú de Usuario (derecha) -->
-                <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
-                    {% if current_user.is_authenticated %}
+                <div class="collapse bg-secondary bg-opacity-25" id="contactInfoCollapse">
+                    <div class="p-3 text-white small">
+                        <h6 class="text-uppercase fw-bold mb-2 text-warning" style="font-size: 0.75rem;">Autoridad del Agua</h6>
                         
-                        <!-- === ¡NUEVO! Desplegable de Base de Datos === -->
-                        <!-- (Estas variables 'db_list' y 'current_db_name'
-                             vienen del '@app.context_processor' en __init__.py) -->
-                        <li class="nav-item dropdown me-lg-2">
-                            <a class="nav-link dropdown-toggle text-warning" href="#" id="navbarDropdownDb" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="bi bi-database"></i> 
-                                {{ current_db_name }} 
-                            </a>
-                            <ul class="dropdown-menu" aria-labelledby="navbarDropdownDb">
-                                <!-- (Iteramos sobre la lista de BDs de config.py) -->
-                                {% for db in db_list %}
-                                <li>
-                                    <a class="dropdown-item {% if db.key == current_db_key %}active{% endif %}" 
-                                       href="{{ url_for('main.change_db', db_key=db.key) }}">
-                                        {{ db.name }}
-                                    </a>
-                                </li>
-                                {% endfor %}
-                            </ul>
-                        </li>
-                        
-                        <li class="nav-item">
-                            <span class="navbar-text text-white me-2">
-                                <i class="bi bi-person-circle"></i> Hola, {{ current_user.username }}
-                            </span>
-                        </li>
-                        <li class="nav-item">
-                            <a class="btn btn-outline-light btn-sm" href="{{ url_for('auth.logout') }}"><i class="bi bi-box-arrow-right"></i> Cerrar Sesión</a>
-                        </li>
-                    {% else %}
-                        <li class="nav-item">
-                            <a class="nav-link" href="{{ url_for('auth.login') }}">Iniciar Sesión</a>
-                        </li>
-                    {% endif %}
-                </ul>
+                        <a href="http://www.ada.gba.gov.ar" target="_blank" class="d-block text-decoration-none text-light mb-1">
+                            <i class="bi bi-globe"></i> Web ADA
+                        </a>
+                        <a href="mailto:vbarbero@ada.gba.gov.ar" class="d-block text-decoration-none text-light mb-1">
+                            <i class="bi bi-envelope"></i> vbarbero@ada.gba.gov.ar
+                        </a>
+                        <div class="text-light">
+                            <i class="bi bi-telephone"></i> +54 0221-4163012
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="sidebar-footer">
+                <small class="text-muted d-block mb-2 text-center">Usuario: {{ current_user.username }}</small>
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm w-100">
+                    <i class="bi bi-box-arrow-right"></i> Cerrar Sesión
+                </a>
             </div>
         </div>
-    </nav>
-
-    <!-- (El resto del <body>: container, footer, script de Bootstrap... queda igual) -->
-    <main class="container mt-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        {% endif %}
+        <div id="page-content-wrapper">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="container-fluid pt-3">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
                     </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-        {% block content %}{% endblock %}
-    </main>
-    
-    <footer class="text-center text-muted mt-5 mb-3">
-        <p>&copy; 2025 SIMPARH</p>
-    </footer>
+                {% endif %}
+            {% endwith %}
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

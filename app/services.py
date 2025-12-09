@@ -1,405 +1,173 @@
-# app/services.py
-# [CORRECCIÓN FINAL: Arreglado el error de 'round(dict)' para Postgres]
+import pandas as pd
+from . import repositories
+from flask_login import current_user
 
-from . import repositories_postgres
-from . import repositories_sqlserver
-import config
-import pandas as pd 
-from datetime import datetime
-from flask_login import current_user # Importamos para chequear el rol
+# === LISTAS ===
+def get_unified_ema_list_service():
+    stations = repositories.get_all_stations_repo()
+    lista = []
+    for s in stations:
+        if s.id_proyecto:
+            nombre_display = f"{s.ubicacion} ({s.proyecto})" if s.ubicacion else s.proyecto
+            lista.append((s.id_proyecto, nombre_display))
+    return lista
 
-# (El mapa de municipios solo se usará para 'db_principal')
-EMA_MUNICIPIO_MAP = {
-    1: "Tigre", 2: "Tigre", 3: "San Fernando", 4: "Tigre",
-    5: "Tres de Febrero", 6: "San Miguel", 7: "San Miguel", 8: "Moreno",
-    9: "Moreno", 10: "Hurlingham", 11: "Moreno", 12: "Gral Las Heras",
-    13: "Gral Rodriguez", 14: "Moreno", 15: "Lujan",
-}
-
-REPOSITORIES_MAP = {
-    'psycopg2': repositories_postgres,
-    'pyodbc': repositories_sqlserver
-}
-
-G_SENSOR_CACHE = {}
-
-
-def get_repo_for_db(db_key):
-    """
-    Devuelve el módulo de repositorio correcto (postgres o sqlserver)
-    basado en la clave de la base de datos.
-    """
-    db_config = config.DATABASE_CONNECTIONS.get(db_key)
-    if not db_config:
-        raise ValueError(f"No se encontró config para la DB: {db_key}")
-        
-    driver = db_config.get('driver')
-    repo = REPOSITORIES_MAP.get(driver)
-    
-    if not repo:
-        raise ValueError(f"Driver no soportado: {driver}")
-        
-    return repo
-
-
-def generate_report_service(db_key, form_data):
-    """
-    Servicio para generar el reporte.
-    """
-    try:
-        repo = get_repo_for_db(db_key)
-        df = repo.generate_report_repo(
-            db_key=db_key, 
-            ema_id_form=form_data.get('ema_id'),
-            fecha_inicio_str=form_data.get('fecha_inicio'),
-            fecha_fin_str=form_data.get('fecha_fin'),
-            sensor_info_list=form_data.getlist('sensor_info'),
-            process_type_list=form_data.getlist('process_type')
-        )
-        
-        # (Solo agregamos el municipio si es la DB principal)
-        if 'ema_id' in df.columns and db_key == 'db_principal':
-            df['municipio'] = df['ema_id'].map(EMA_MUNICIPIO_MAP).fillna('N/A')
-            cols = list(df.columns)
-            if 'nombre_ema' in cols:
-                municipio_col = cols.pop(cols.index('municipio'))
-                nombre_ema_index = cols.index('nombre_ema')
-                cols.insert(nombre_ema_index + 1, municipio_col)
-                df = df[cols] 
-
-        output_excel = repositories_postgres.create_excel_from_dataframe(df)
-        
-        fecha_i = form_data.get("fecha_inicio", "inicio")
-        fecha_f = form_data.get("fecha_fin", "fin")
-        nombre_archivo = f'reporte_EMA_{form_data.get("ema_id")}_{fecha_i}_al_{fecha_f}.xlsx'
-        
-        return output_excel.getvalue(), nombre_archivo
-
-    except Exception as e:
-        print(f"Error en generate_report_service: {e}")
-        raise e
-
-def get_sensors_for_ema_service(db_key, ema_id):
-    repo = get_repo_for_db(db_key)
-    todos_los_sensores = repo.get_sensors_for_ema_repo(db_key, G_SENSOR_CACHE, ema_id)
-    
-    # === FILTRO DE BATERÍA PARA USUARIO RESTRINGIDO (MEJORADO) ===
-    if current_user.is_authenticated and current_user.role == 'restricted':
-        sensores_filtrados = []
-        
-        # Palabras que queremos ocultar
-        palabras_prohibidas = ['bateria', 'Bateria', '_Bateria', '_bateria']
-        
-        for s in todos_los_sensores:
-            # 1. Revisamos el nombre técnico de la tabla (ej: 'medicion_bateria')
-            nombre_tabla = s.get('table_name', '').lower()
+def get_all_unified_locations_service():
+    """Genera los datos para el MAPA con metadatos para filtros"""
+    stations = repositories.get_all_stations_repo()
+    result = []
+    for s in stations:
+        if s.latitude and s.longitude:
+            # Detectar tipo de red (COMIREC, SIMATH, etc) basado en el proyecto
+            tipo_red = "OTRO"
+            proyecto_str = (s.proyecto or "").upper()
+            if "COMIREC" in proyecto_str: tipo_red = "COMIREC"
+            elif "SIMATH" in proyecto_str or "SIMPARH" in proyecto_str: tipo_red = "SIMATH"
             
-            # 2. Revisamos el texto visible (ej: 'Sensor de Tensión 12V')
-            texto_busqueda = s.get('search_text', '').lower()
-            
-            es_bateria = False
-            
-            # Si la tabla contiene 'bateria', es batería seguro -> Ocultar
-            if 'bateria' in nombre_tabla:
-                es_bateria = True
-            
-            # Si el nombre visible tiene alguna palabra prohibida -> Ocultar
-            if any(palabra in texto_busqueda for palabra in palabras_prohibidas):
-                es_bateria = True
-            
-            # Solo lo agregamos a la lista si NO es batería
-            if not es_bateria:
-                sensores_filtrados.append(s)
+            result.append({
+                'id': s.id_proyecto,
+                'nombre': s.ubicacion or s.id_proyecto, 
+                'descripcion': f"Cuenca: {s.cuenca} | Partido: {s.partido}",
+                'lat': s.latitude,
+                'lon': s.longitude,
+                'source_db': 'postgres',
                 
-        return sensores_filtrados
-    # =============================================================
-    
-    return todos_los_sensores
-
-def get_ema_list_service(db_key):
-    """
-    Obtiene la lista de EMAs para mostrar en el desplegable.
-    """
-    repo = get_repo_for_db(db_key)
-    emas_raw_list = repo.get_ema_list_repo(db_key)
-    
-    emas_display_list = []
-    for ema_id, ema_nombre in emas_raw_list: 
-        
-        # Si la base de datos es la principal, muestra el municipio
-        if db_key == 'db_principal':
-            municipio = EMA_MUNICIPIO_MAP.get(int(ema_id), "N/A")
-            display_text = f"{ema_nombre} ({municipio})"
-        else:
-            # Si es la base SQL (o cualquier otra), solo muestra el nombre
-            display_text = ema_nombre
-            
-        emas_display_list.append((ema_id, display_text))
-        
-    return emas_display_list
-
-def get_chart_data_service(db_key, ema_id, sensor_info_list, fecha_inicio, fecha_fin, combine=False):
-    
-    repo = get_repo_for_db(db_key)
-
-    is_valid_combination = False
-    if combine:
-        pluvio_sensor = None
-        nivel_sensor = None
-        for s in sensor_info_list:
-            sensor_search_text = s.lower()
-            if 'pluvio' in sensor_search_text:
-                pluvio_sensor = s
-            elif 'limni' in sensor_search_text or 'freati' in sensor_search_text:
-                nivel_sensor = s
-        if (pluvio_sensor is not None and 
-            nivel_sensor is not None and 
-            len(sensor_info_list) == 2):
-            is_valid_combination = True
-            sensor_info_list = [pluvio_sensor, nivel_sensor]
-    
-    if is_valid_combination:
-        print(f"Generando gráfico combinado (Lluvia + Nivel) para {db_key}...")
-        dfs_to_merge = []
-        datasets_config = []
-        
-        for sensor_info_str in sensor_info_list:
-            sensor_name = sensor_info_str.split('|')[2]
-            
-            if 'pluvio' in sensor_info_str.lower():
-                process_type = 'pluvio_sum' 
-                chart_type = 'bar'
-                label = f"{sensor_name} (mm)"
-            else: 
-                process_type = 'nivel_max' 
-                chart_type = 'line'
-                label = f"{sensor_name} (m)"
-
-            df = repo.generate_report_repo(
-                db_key=db_key, 
-                ema_id_form=ema_id,
-                fecha_inicio_str=fecha_inicio,
-                fecha_fin_str=fecha_fin,
-                sensor_info_list=[sensor_info_str],
-                process_type_list=[process_type]
-            )
-            
-            if not df.empty and 'valor' in df.columns:
-                df.rename(columns={'valor': sensor_name}, inplace=True)
-                dfs_to_merge.append(df[['dia', sensor_name]])
-                datasets_config.append({
-                    'name': sensor_name,
-                    'type': chart_type,
-                    'label': label
-                })
-
-        if len(dfs_to_merge) != 2:
-             print("Error al recolectar datos para combinar, se devuelven separados.")
-             is_valid_combination = False 
-        else:
-            combined_df = pd.merge(dfs_to_merge[0], dfs_to_merge[1], on='dia', how='outer')
-            combined_df.sort_values(by='dia', inplace=True)
-            combined_df = combined_df.where(pd.notnull(combined_df), None)
-            labels = pd.to_datetime(combined_df['dia']).dt.strftime('%Y-%m-%d').tolist()
-            final_datasets = []
-            final_scales = {}
-            colors = [
-                {'bg': 'rgba(54, 162, 235, 0.6)', 'border': 'rgba(54, 162, 235, 1)'}, 
-                {'bg': 'rgba(255, 99, 132, 0.6)', 'border': 'rgba(255, 99, 132, 1)'}
-            ]
-            datasets_config.sort(key=lambda x: x['type'] == 'line') 
-            for i, config in enumerate(datasets_config):
-                y_axis_id = f'y{i + 1}'
-                data = combined_df[config['name']].tolist()
-                color = colors[i] 
-                final_datasets.append({
-                    'label': config['label'], 'data': data, 'type': config['type'], 
-                    'yAxisID': y_axis_id, 'backgroundColor': color['bg'],
-                    'borderColor': color['border'], 'borderWidth': 2 if config['type'] == 'line' else 1,
-                    'fill': False 
-                })
-                final_scales[y_axis_id] = {
-                    'type': 'linear',
-                    'position': 'left' if config['type'] == 'bar' else 'right', 
-                    'title': { 'display': True, 'text': config['label'] },
-                    'grid': { 'drawOnChartArea': (i == 0) } 
-                }
-            final_chart_type = 'bar' 
-            return [{
-                'chart_type': final_chart_type, 'labels': labels, 'datasets': final_datasets,
-                'options': { 
-                    'responsive': True, 'maintainAspectRatio': False, 'scales': final_scales, 
-                    'plugins': {
-                        'tooltip': { 'mode': 'index', 'intersect': False },
-                        'title': { 'display': True, 'text': f'Gráfico Combinado (EMA: {ema_id})' }
-                    }
-                }
-            }]
-
-    if not is_valid_combination:
-        print(f"Generando gráficos separados para {db_key}...")
-        all_charts_data = []
-        for sensor_info_str in sensor_info_list:
-            process_type = 'avg_hourly'
-            chart_type = 'line' 
-            label_base = 'Promedio por Hora'
-            
-            search_text = sensor_info_str.lower()
-            if 'pluvio' in search_text:
-                process_type = 'pluvio_sum' 
-                chart_type = 'bar'
-                label_base = 'Lluvia Acumulada Diaria (mm)'
-            elif 'limni' in search_text or 'freati' in search_text:
-                process_type = 'nivel_max' 
-                chart_type = 'line'
-                label_base = 'Nivel Máximo Diario (m)'
-            elif 'anemo' in search_text or 'temp' in search_text:
-                process_type = 'avg_hourly' 
-                chart_type = 'line'
-                label_base = 'Promedio por Hora'
-            elif 'bateria' in search_text:
-                process_type = 'raw' 
-                chart_type = 'line'
-                label_base = 'Voltaje Batería (V)'
-            elif 'presion' in search_text:
-                process_type = 'raw' 
-                chart_type = 'line'
-                label_base = 'Presión (hPa)'
-
-            try:
-                sensor_name = sensor_info_str.split('|')[2]
-                label = f"{sensor_name} - {label_base}"
-            except:
-                label = label_base
-            
-            df = repo.generate_report_repo(
-                db_key=db_key, 
-                ema_id_form=ema_id,
-                fecha_inicio_str=fecha_inicio,
-                fecha_fin_str=fecha_fin,
-                sensor_info_list=[sensor_info_str],
-                process_type_list=[process_type]
-            )
-            labels = []
-            data = []
-            if process_type == 'pluvio_sum' or process_type == 'nivel_max':
-                if not df.empty and 'dia' in df.columns:
-                    labels = pd.to_datetime(df['dia']).dt.strftime('%Y-%m-%d').tolist()
-                    data = df['valor'].tolist()
-            else: 
-                if not df.empty and ('hora' in df.columns and df['hora'].notnull().any()):
-                    labels = pd.to_datetime(df['hora']).dt.strftime('%Y-%m-%d %H:%M').tolist()
-                    data = df['valor'].tolist()
-                elif not df.empty and 'tiempo_de_medicion' in df.columns:
-                     labels = pd.to_datetime(df['tiempo_de_medicion']).dt.strftime('%Y-%m-%d %H:%M').tolist()
-                     data = df['valor'].tolist()
-
-            bg_color = 'rgba(54, 162, 235, 0.6)' if chart_type == 'bar' else 'rgba(255, 99, 132, 0.6)'
-            border_color = 'rgba(54, 162, 235, 1)' if chart_type == 'bar' else 'rgba(255, 99, 132, 1)'
-            all_charts_data.append({
-                'chart_type': chart_type, 'labels': labels,
-                'datasets': [{'label': label, 'data': data,
-                    'backgroundColor': bg_color, 'borderColor': border_color, 'borderWidth': 1
-                }]
+                # --- DATOS NUEVOS PARA FILTROS ---
+                'partido': s.partido or "Sin Definir",
+                'cuenca': s.cuenca or "Sin Definir",
+                'red': tipo_red # COMIREC o SIMATH
             })
-        return all_charts_data
+    return result
 
+# ... (El resto de funciones get_sensors, dashboard y charts quedan IGUAL que antes) ...
+# (Copia el resto del archivo services.py que ya tenías funcionando)
+def get_sensors_for_ema_service(dummy_db, ema_id):
+    sensors = repositories.get_sensors_for_station_repo(ema_id)
+    if current_user.is_authenticated and getattr(current_user, 'role', 'admin') == 'restricted':
+        sensors = [s for s in sensors if 'bateria' not in s['search_text']]
+    return sensors
 
-def get_ema_locations_service(db_key):
-    """
-    Servicio para buscar las locaciones de las EMAs.
-    """
-    repo = get_repo_for_db(db_key)
-    return repo.get_ema_locations_repo(db_key)
+def get_dashboard_data_service(dummy_db, ema_id):
+    return repositories.get_dashboard_data_repo(ema_id)
 
-def get_ema_live_summary_service(db_key, ema_id):
-    repo = get_repo_for_db(db_key)
-    raw_data = repo.get_ema_live_summary_repo(db_key, ema_id)
+def generate_report_service(dummy_db, form_data):
+    ema_id = form_data.get('ema_id')
+    f_inicio = form_data.get('fecha_inicio')
+    f_fin = form_data.get('fecha_fin')
+    sensors = form_data.getlist('sensor_info')
+    processes = form_data.getlist('process_type')
+    dfs = []
+    for s_info, proc in zip(sensors, processes):
+        parts = s_info.split('|')
+        if len(parts) < 2: continue
+        metrica_db = parts[1]
+        nombre_sensor = parts[2] if len(parts) > 2 else metrica_db
+        df = repositories.generate_chart_report_data(ema_id, f_inicio, f_fin, metrica_db, proc)
+        if not df.empty:
+            df['Sensor'] = nombre_sensor
+            dfs.append(df)
+    if not dfs: raise Exception("No se encontraron datos para el rango seleccionado.")
+    final_df = pd.concat(dfs, ignore_index=True)
+    excel_file = repositories.create_excel_from_dataframe(final_df)
+    return excel_file.getvalue(), f"Reporte_{ema_id}.xlsx"
+
+def get_chart_data_service(dummy_db, ema_id, sensor_info_list, f_inicio, f_fin, combine=False):
+    result_charts = [] 
+    if combine:
+        datasets = []
+        labels = set()
+        scales_config = {
+            'x': { 'title': { 'display': True, 'text': 'Fecha' } },
+            'y-nivel': { 'type': 'linear', 'display': True, 'position': 'left', 'title': { 'display': True, 'text': 'Nivel (m)' }, 'grid': { 'drawOnChartArea': False } },
+            'y-lluvia': { 'type': 'linear', 'display': True, 'position': 'right', 'title': { 'display': True, 'text': 'Lluvia (mm)' }, 'grid': { 'drawOnChartArea': False } }
+        }
+        for s_info in sensor_info_list:
+            ds, fe = _process_single_sensor(s_info, ema_id, f_inicio, f_fin, is_combined=True)
+            if ds:
+                datasets.append(ds)
+                if fe: labels.update(fe)
+        if datasets:
+            result_charts.append({
+                'chart_type': 'bar',
+                'labels': sorted(list(labels)),
+                'datasets': datasets,
+                'options': { 'responsive': True, 'maintainAspectRatio': False, 'interaction': { 'mode': 'index', 'intersect': False }, 'scales': scales_config, 'plugins': { 'title': { 'display': True, 'text': 'Gráfico Combinado' } } }
+            })
+    else:
+        for s_info in sensor_info_list:
+            ds, fe = _process_single_sensor(s_info, ema_id, f_inicio, f_fin, is_combined=False)
+            if ds:
+                parts = s_info.split('|')
+                nombre = parts[2] if len(parts) > 2 else "Sensor"
+                scales_config = { 'x': { 'title': { 'display': True, 'text': 'Fecha' } }, 'y': { 'title': { 'display': True, 'text': 'Valor' }, 'position': 'left' } }
+                result_charts.append({
+                    'chart_type': ds['type'],
+                    'labels': sorted(list(set(fe))),
+                    'datasets': [ds],
+                    'options': { 'responsive': True, 'maintainAspectRatio': False, 'scales': scales_config, 'plugins': { 'title': { 'display': True, 'text': nombre } } }
+                })
+    return result_charts
+
+def _process_single_sensor(s_info, ema_id, f_inicio, f_fin, is_combined):
+    parts = s_info.split('|')
+    if len(parts) < 2: return None, []
+    metrica_db = parts[1]
+    nombre = parts[2] if len(parts) > 2 else metrica_db
+    proc = 'raw'; tipo_grafico = 'line'; color = 'cyan'; y_axis_id = 'y'
+    if 'Pluvio' in metrica_db: 
+        proc = 'pluvio_sum'; tipo_grafico = 'bar'; color = 'blue'
+        if is_combined: y_axis_id = 'y-lluvia'
+    elif 'Limni' in metrica_db or 'Freat' in metrica_db: 
+        proc = 'raw'; tipo_grafico = 'line'; color = 'navy'
+        if is_combined: y_axis_id = 'y-nivel'
+    elif 'Anemo' in metrica_db: color = 'green'
+    elif 'Temp' in metrica_db: color = 'red'
+    elif 'Baro' in metrica_db: color = 'purple'
+    if is_combined and not ('Pluvio' in metrica_db or 'Limni' in metrica_db or 'Freat' in metrica_db):
+         y_axis_id = 'y-nivel' 
+    df = repositories.generate_chart_report_data(ema_id, f_inicio, f_fin, metrica_db, proc)
+    if df.empty: return None, []
+    col_t = 'fecha'
+    if 'dia' in df.columns: col_t = 'dia'
+    elif 'hora' in df.columns: col_t = 'hora'
+    dataset = {
+        'label': nombre, 'data': df['valor'].tolist(), 'type': tipo_grafico,
+        'borderColor': color, 'backgroundColor': color, 'borderWidth': 2
+    }
+    if is_combined:
+        dataset['yAxisID'] = y_axis_id
+        dataset['order'] = 0 if tipo_grafico == 'line' else 1 
+    return dataset, df[col_t].astype(str).tolist()
+def get_all_unified_locations_service():
+    stations = repositories.get_all_stations_repo()
     
-    formatted_data = {}
+    # 1. Obtenemos el set de estaciones que reportaron hoy (Rápido)
+    active_ids = repositories.get_active_stations_ids_today()
     
-    # (Formateo normal...)
-    if raw_data.get('pluvio_sum_hoy') is not None:
-        formatted_data['pluvio_sum_hoy'] = f"{round(raw_data['pluvio_sum_hoy'], 1)} mm (hoy)"
-    if raw_data.get('temperatura') is not None:
-        formatted_data['temperatura'] = f"{round(raw_data['temperatura'], 1)} °C"
-    if raw_data.get('nivel_max_hoy') is not None:
-        formatted_data['nivel_max_hoy'] = f"{round(raw_data['nivel_max_hoy'], 2)} m"
-    if raw_data.get('presion') is not None:
-        formatted_data['presion'] = f"{round(raw_data['presion'], 1)} hPa"
-
-    # === FILTRO DE BATERÍA (POPUP MAPA) ===
-    # Solo mostramos batería si NO es restringido
-    if current_user.is_authenticated and current_user.role != 'restricted':
-        if raw_data.get('bateria') is not None:
-            formatted_data['bateria'] = f"{round(raw_data['bateria'], 2)} V"
-    # =======================================
-
-    return formatted_data
-
-def get_dashboard_data_service(db_key, ema_id):
-    repo = get_repo_for_db(db_key)
-    raw_data = repo.get_dashboard_data_repo(db_key, ema_id)
-    
-    formatted_data = {}
-    
-    def format_timestamp(ts):
-        if isinstance(ts, datetime): return ts.strftime('%H:%M hs')
-        return 'N/A'
-
-    # (Carga de datos normal...)
-    if raw_data.get('pluvio_sum_hoy'):
-        v = raw_data['pluvio_sum_hoy']['valor']
-        formatted_data['pluvio_sum_hoy'] = {'valor_str': f"{round(v, 1)} mm", 'valor_num': round(v, 1), 'timestamp': 'Acum. de hoy'}
-
-    if raw_data.get('temperatura'):
-        v = raw_data['temperatura']['valor']
-        formatted_data['temperatura'] = {'valor_str': f"{round(v, 1)} °C", 'valor_num': round(v, 1), 'timestamp': format_timestamp(raw_data['temperatura']['timestamp'])}
-        
-    if raw_data.get('nivel_max_hoy'):
-        v = raw_data['nivel_max_hoy']['valor']
-        formatted_data['nivel_max_hoy'] = {'valor_str': f"{round(v, 2)} m", 'valor_num': round(v, 2), 'timestamp': 'Máx. de hoy'}
-        
-    if raw_data.get('viento_vel') and raw_data.get('viento_dir'):
-        vel = raw_data['viento_vel']['valor']; dir = raw_data['viento_dir']['valor']
-        formatted_data['viento'] = {'vel_str': f"{round(vel, 1)} km/h", 'dir_str': f"{round(dir)}°", 'dir_num': round(dir), 'timestamp': format_timestamp(raw_data['viento_vel']['timestamp'])}
-
-    if raw_data.get('presion'):
-        v = raw_data['presion']['valor']
-        formatted_data['presion'] = {'valor_str': f"{round(v, 1)} hPa", 'valor_num': round(v, 1), 'timestamp': format_timestamp(raw_data['presion']['timestamp'])}
-
-    # === FILTRO DE BATERÍA (DASHBOARD) ===
-    # Solo agregamos la batería al diccionario si NO es restringido
-    if current_user.is_authenticated and current_user.role != 'restricted':
-        if raw_data.get('bateria'):
-            v = raw_data['bateria']['valor']
-            formatted_data['bateria'] = {
-                'valor_str': f"{round(v, 2)} V", 
-                'valor_num': round(v, 2), 
-                'timestamp': format_timestamp(raw_data['bateria']['timestamp'])
-            }
-    # =====================================
-
-    return formatted_data
-
-
-def build_global_cache():
-    """
-    Construye un caché global de sensores para CADA base de datos.
-    """
-    print("Inicializando caché global (build_global_cache)...")
-    global G_SENSOR_CACHE
-    G_SENSOR_CACHE = {}  # Reinicia el caché en memoria
-
-    for db_key, db_conf in config.DATABASE_CONNECTIONS.items():
-        try:
-            repo = get_repo_for_db(db_key)
-            sensor_cache_para_db = repo.build_active_sensor_cache(db_key)
-            G_SENSOR_CACHE[db_key] = sensor_cache_para_db
-            print(f"✅ Caché de sensores cargado para {db_key} ({len(sensor_cache_para_db)} EMAs con sensores)")
-        
-        except Exception as e:
-            print(f"⚠️ Error al cargar caché de sensores para {db_key}: {e}")
-            G_SENSOR_CACHE[db_key] = {} 
+    result = []
+    for s in stations:
+        if s.latitude and s.longitude:
+            tipo_red = "OTRO"
+            proyecto_str = (s.proyecto or "").upper()
+            if "COMIREC" in proyecto_str: tipo_red = "COMIREC"
+            elif "SIMATH" in proyecto_str or "SIMPARH" in proyecto_str: tipo_red = "SIMATH"
             
-    return G_SENSOR_CACHE
+            # 2. Determinamos el estado (Verde/Rojo)
+            # Si el ID está en el set de activas, está ONLINE
+            estado = 'online' if s.id_proyecto in active_ids else 'offline'
+
+            result.append({
+                'id': s.id_proyecto,
+                'nombre': s.ubicacion or s.id_proyecto, 
+                'descripcion': f"Cuenca: {s.cuenca} | Partido: {s.partido}",
+                'lat': s.latitude,
+                'lon': s.longitude,
+                'source_db': 'postgres',
+                'partido': s.partido or "Sin Definir",
+                'cuenca': s.cuenca or "Sin Definir",
+                'red': tipo_red,
+                
+                # ¡Nuevo campo para el mapa!
+                'status': estado 
+            })
+    return result
