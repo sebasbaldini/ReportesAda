@@ -178,6 +178,8 @@ def get_dashboard_data_repo(id_proyecto_str):
         except: pass
     return data
 
+# --- BUSCA ESTA FUNCIÓN Y REEMPLÁZALA COMPLETA ---
+
 def get_map_popup_status_repo(id_proyecto_str):
     sensores_config = get_sensors_for_station_repo(id_proyecto_str)
     resultado = []
@@ -187,23 +189,31 @@ def get_map_popup_status_repo(id_proyecto_str):
         metrica_real = sensor['table_name']
         nombre_display = sensor['nombre']
         
+        # Valores por defecto
         estado = 'offline'
         valor_str = "Sin datos"
         fecha_str = "-"
         
         try:
+            # Buscamos el ÚLTIMO dato registrado
             ultimo_dato = db.session.query(MedicionEMA)\
                 .filter_by(id_proyecto=id_proyecto_str, metrica=metrica_real)\
                 .order_by(MedicionEMA.fecha.desc())\
                 .first()
             
+            # --- CAMBIO CLAVE AQUÍ ---
+            # Solo agregamos el sensor a la lista SI existe algún dato histórico.
+            # Si ultimo_dato es None, significa que nunca midió nada, así que lo ignoramos (continue).
             if ultimo_dato:
+                
+                # Chequeo de frescura (Verde/Rojo)
                 if ultimo_dato.fecha >= hoy_inicio:
                     estado = 'online'
                 
                 fecha_str = ultimo_dato.fecha.strftime('%d/%m %H:%M')
                 val = ultimo_dato.valor
                 
+                # Formato bonito de unidades
                 if 'Pluvio' in metrica_real: valor_str = f"{val} mm"
                 elif 'Limni' in metrica_real: valor_str = f"{val} m"
                 elif 'Temp' in metrica_real: valor_str = f"{val} °C"
@@ -212,12 +222,20 @@ def get_map_popup_status_repo(id_proyecto_str):
                 elif 'Presion' in metrica_real or 'Baro' in metrica_real: valor_str = f"{int(val)} hPa"
                 elif 'Humedad' in metrica_real: valor_str = f"{int(val)} %"
                 else: valor_str = str(val)
+
+                # Agregamos a la lista visible SOLO si hay datos
+                resultado.append({
+                    'nombre': nombre_display, 
+                    'valor': valor_str, 
+                    'fecha': fecha_str, 
+                    'estado': estado
+                })
+            
+            # Si no hay ultimo_dato, el bucle sigue y NO agrega nada a 'resultado'
                 
         except Exception as e:
             print(f"Error popup sensor {metrica_real}: {e}")
 
-        resultado.append({'nombre': nombre_display, 'valor': valor_str, 'fecha': fecha_str, 'estado': estado})
-        
     return resultado
 
 def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica, tipo_proceso='raw'):
