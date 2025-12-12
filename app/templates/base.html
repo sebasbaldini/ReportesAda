@@ -20,31 +20,71 @@
         {% if current_user.is_authenticated %}
         <div id="sidebar-wrapper">
             
-            <div class="sidebar-heading">
-                <a href="{{ url_for('main.index') }}" class="text-decoration-none text-white">
-                    <i class="bi bi-broadcast"></i> SIMPARH
+            <div class="sidebar-heading p-0 bg-transparent text-center">
+                <a href="{{ url_for('main.index') }}" class="d-block">
+                    <img src="{{ url_for('static', filename='imagenes/LogoPagina.png') }}" 
+                         alt="SIMPARH" 
+                         style="width: 100%; height: auto; display: block;">
                 </a>
             </div>
             
             <div class="list-group list-group-flush">
                 
-                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action bg-dark text-white {% if request.endpoint == 'main.custom_chart_page' %}active{% endif %}">
+                {% if request.endpoint == 'main.index' %}
+                    <button class="list-group-item list-group-item-action text-white active" type="button" data-bs-toggle="collapse" data-bs-target="#mapFiltersCollapse" aria-expanded="false" aria-controls="mapFiltersCollapse">
+                        <i class="bi bi-map me-2"></i> Mapa / Filtros <i class="bi bi-chevron-down float-end small mt-1"></i>
+                    </button>
+                    
+                    <div class="collapse bg-white text-dark shadow-sm" id="mapFiltersCollapse">
+                        <div class="p-3 small">
+                            
+                            <div class="mb-2">
+                                <label class="form-label fw-bold text-secondary mb-1">Municipio:</label>
+                                <select id="selectPartido" class="form-select form-select-sm border-secondary filter-trigger">
+                                    <option value="" selected></option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label fw-bold text-secondary mb-1">Cuenca:</label>
+                                <select id="selectCuenca" class="form-select form-select-sm border-secondary filter-trigger">
+                                    <option value="" selected></option>
+                                </select>
+                            </div>
+
+                            <div class="d-flex justify-content-between mb-2 fw-bold" style="font-size: 0.75rem;">
+                                <span><i class="bi bi-circle-fill text-success"></i> Online</span>
+                                <span><i class="bi bi-circle-fill text-danger"></i> Offline</span>
+                            </div>
+                            
+                            <div class="text-center text-muted fst-italic" id="stationsCount">
+                                Cargando...
+                            </div>
+
+                        </div>
+                    </div>
+                {% else %}
+                    <a href="{{ url_for('main.index') }}" class="list-group-item list-group-item-action text-white">
+                        <i class="bi bi-map me-2"></i> Mapa Unificado
+                    </a>
+                {% endif %}
+                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action text-white {% if request.endpoint == 'main.custom_chart_page' %}active{% endif %}">
                     <i class="bi bi-graph-up-arrow me-2"></i> Gráficos
                 </a>
 
-                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action bg-dark text-white {% if request.endpoint == 'main.chart_dashboard_page' %}active{% endif %}">
+                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action text-white {% if request.endpoint == 'main.chart_dashboard_page' %}active{% endif %}">
                     <i class="bi bi-speedometer2 me-2"></i> Dashboard
                 </a>
 
-                <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action bg-dark text-white {% if request.endpoint == 'main.report_page' %}active{% endif %}">
+                <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action text-white {% if request.endpoint == 'main.report_page' %}active{% endif %}">
                     <i class="bi bi-file-earmark-spreadsheet me-2"></i> Reportes
                 </a>
                 
-                <button class="list-group-item list-group-item-action bg-dark text-white" type="button" data-bs-toggle="collapse" data-bs-target="#contactInfoCollapse" aria-expanded="false" aria-controls="contactInfoCollapse">
+                <button class="list-group-item list-group-item-action text-white" type="button" data-bs-toggle="collapse" data-bs-target="#contactInfoCollapse" aria-expanded="false" aria-controls="contactInfoCollapse">
                     <i class="bi bi-person-lines-fill me-2"></i> Contacto <i class="bi bi-chevron-down ms-auto" style="font-size: 0.8em;"></i>
                 </button>
                 
-                <div class="collapse bg-secondary bg-opacity-25" id="contactInfoCollapse">
+                <div class="collapse bg-black bg-opacity-25" id="contactInfoCollapse">
                     <div class="p-3 text-white small">
                         <h6 class="text-uppercase fw-bold mb-2 text-warning" style="font-size: 0.75rem;">Autoridad del Agua</h6>
                         
@@ -63,13 +103,14 @@
             </div>
 
             <div class="sidebar-footer">
-                <small class="text-muted d-block mb-2 text-center">Usuario: {{ current_user.username }}</small>
-                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-danger btn-sm w-100">
+                <small class="text-white-50 d-block mb-2 text-center">Usuario: {{ current_user.username }}</small>
+                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm w-100">
                     <i class="bi bi-box-arrow-right"></i> Cerrar Sesión
                 </a>
             </div>
         </div>
         {% endif %}
+        
         <div id="page-content-wrapper">
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}

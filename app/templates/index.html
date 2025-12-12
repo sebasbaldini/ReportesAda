@@ -3,53 +3,21 @@
 {% block title %}Mapa Interactivo - SIMPARH{% endblock %}
 
 {% block content %}
-<div class="full-screen-map-container" style="position: relative;">
-    
-    <div class="card shadow-sm border-0" 
-         style="position: absolute; top: 20px; right: 20px; z-index: 1000; width: 300px; background-color: rgba(255, 255, 255, 0.95);">
-        <div class="card-header bg-dark text-white py-2">
-            <small class="fw-bold"><i class="bi bi-funnel"></i> Filtros de Estaciones</small>
-        </div>
-        <div class="card-body p-3">
-            
-            <div class="mb-2">
-                <label class="form-label small fw-bold mb-1">Municipio (Partido):</label>
-                <select id="selectPartido" class="form-select form-select-sm filter-trigger">
-                    <option value="all">-- Todos --</option>
-                    </select>
-            </div>
-
-            <div class="mb-2">
-                <label class="form-label small fw-bold mb-1">Cuenca:</label>
-                <select id="selectCuenca" class="form-select form-select-sm filter-trigger">
-                    <option value="all">-- Todas --</option>
-                    </select>
-            </div>
-
-            <hr class="my-2">
-            
-            <div class="d-flex justify-content-around mb-2">
-                <small><span class="badge bg-success">●</span> Online (Hoy)</small>
-                <small><span class="badge bg-danger">●</span> Offline</small>
-            </div>
-
-            <small class="text-muted d-block text-center" id="stationsCount">Cargando...</small>
-        </div>
-    </div>
-
+<div class="full-screen-map-container">
     <div id="map" class="full-h"></div>
 </div>
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         
-        // DATOS DESDE FLASK
+        // DATOS
         const allEmas = {{ ema_locations | tojson }};
         const owmApiKey = {{ owm_api_key | tojson }};
         
-        // INICIALIZAR MAPA
-        const map = L.map('map').setView([-34.6, -58.8], 9);
-        
+        // MAPA
+        const map = L.map('map', { zoomControl: false }).setView([-34.6, -58.8], 9);
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
         const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
             attribution: '© OpenStreetMap, © CARTO' 
         });
@@ -58,12 +26,11 @@
         });
         
         map.addLayer(baseLayer);
-        L.control.layers({ "Mapa Base": baseLayer }, { "Radar Lluvia": rainLayer }).addTo(map);
+        L.control.layers({ "Mapa Base": baseLayer }, { "Radar Lluvia": rainLayer }, { position: 'topright' }).addTo(map);
 
-        // Capa de Marcadores
         const markersLayer = L.layerGroup().addTo(map);
         
-        // --- ICONOS (SEMÁFORO) ---
+        // ICONOS
         const iconOnline = L.divIcon({ 
             className: 'custom-div-icon', 
             html: '<div style="background-color: #198754; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>',
@@ -82,60 +49,76 @@
         const lblCount = document.getElementById('stationsCount');
         const triggers = document.querySelectorAll('.filter-trigger');
 
-        // 1. LLENAR COMBOS (¡Ahora con TODAS las estaciones!)
+        // 1. LLENAR COMBOS
         function populateFilters() {
             const partidos = new Set();
             const cuencas = new Set();
 
             allEmas.forEach(ema => {
-                // NO filtramos por red aquí. Agregamos TODO lo que haya en la base.
                 if(ema.partido) partidos.add(ema.partido);
                 if(ema.cuenca) cuencas.add(ema.cuenca);
             });
 
+            // Agregar opción especial "Ver Todas"
+            const optAllP = document.createElement('option');
+            optAllP.value = 'all'; optAllP.textContent = '-- Ver Todas --';
+            optAllP.style.fontWeight = 'bold';
+            if(selPartido) selPartido.appendChild(optAllP);
+
+            const optAllC = document.createElement('option');
+            optAllC.value = 'all'; optAllC.textContent = '-- Ver Todas --';
+            optAllC.style.fontWeight = 'bold';
+            if(selCuenca) selCuenca.appendChild(optAllC);
+
             Array.from(partidos).sort().forEach(p => {
                 const opt = document.createElement('option');
                 opt.value = p; opt.textContent = p;
-                selPartido.appendChild(opt);
+                if(selPartido) selPartido.appendChild(opt);
             });
 
             Array.from(cuencas).sort().forEach(c => {
                 const opt = document.createElement('option');
                 opt.value = c; opt.textContent = c;
-                selCuenca.appendChild(opt);
+                if(selCuenca) selCuenca.appendChild(opt);
             });
         }
 
-        // 2. LÓGICA DE DIBUJADO INTELIGENTE
+        // 2. LÓGICA DE DIBUJADO Y FILTRADO
         function updateMap() {
             markersLayer.clearLayers(); 
             
-            const pVal = selPartido.value;
-            const cVal = selCuenca.value;
+            // Los valores pueden ser: "" (blanco), "all" (todas), o un nombre específico
+            const pVal = selPartido ? selPartido.value : '';
+            const cVal = selCuenca ? selCuenca.value : '';
             
-            // ¿El usuario está usando algún filtro?
-            const filtrosActivos = (pVal !== 'all' || cVal !== 'all');
-
             let count = 0;
 
             allEmas.forEach(ema => {
                 let mostrar = false;
 
-                // 1. Chequeamos coincidencia con filtros
-                const coincidePartido = (pVal === 'all' || ema.partido === pVal);
-                const coincideCuenca = (cVal === 'all' || ema.cuenca === cVal);
+                // --- CASO 1: FILTROS EN BLANCO (INICIO) ---
+                if (pVal === '' && cVal === '') {
+                    // Mostrar solo Principales
+                    if (ema.red === 'COMIREC' || ema.red === 'SIMATH') {
+                        mostrar = true;
+                    }
+                } 
+                // --- CASO 2: FILTRO ACTIVADO ("Todas" o Específico) ---
+                else {
+                    let cumplePartido = true;
+                    let cumpleCuenca = true;
 
-                if (coincidePartido && coincideCuenca) {
+                    // Lógica Partido
+                    if (pVal !== '' && pVal !== 'all') {
+                        if (ema.partido !== pVal) cumplePartido = false;
+                    }
                     
-                    if (!filtrosActivos) {
-                        // CASO A: INICIO (Sin filtros)
-                        // Solo mostramos las redes "VIP" (COMIREC y SIMATH)
-                        if (ema.red === 'COMIREC' || ema.red === 'SIMATH') {
-                            mostrar = true;
-                        }
-                    } else {
-                        // CASO B: BUSCANDO (Con filtros)
-                        // Mostramos TODO lo que coincida, sin importar la red
+                    // Lógica Cuenca
+                    if (cVal !== '' && cVal !== 'all') {
+                        if (ema.cuenca !== cVal) cumpleCuenca = false;
+                    }
+
+                    if (cumplePartido && cumpleCuenca) {
                         mostrar = true;
                     }
                 }
@@ -144,43 +127,76 @@
                     const icon = (ema.status === 'online') ? iconOnline : iconOffline;
                     const marker = L.marker([ema.lat, ema.lon], { icon: icon });
                     
-                    marker.bindTooltip(ema.nombre, { permanent: false, direction: 'top' });
-                    marker.on('click', () => openPopup(marker, ema));
+                    marker.bindTooltip(`<b>${ema.nombre}</b>`, { 
+                        permanent: true,
+                        direction: 'top',
+                        className: 'ema-label', 
+                        offset: [0, -10]
+                    });
                     
+                    marker.on('click', () => openPopup(marker, ema));
                     markersLayer.addLayer(marker);
                     count++;
                 }
             });
 
-            lblCount.textContent = `Viendo ${count} estaciones`;
+            if(lblCount) lblCount.textContent = `Viendo ${count} estaciones`;
         }
 
         function openPopup(marker, ema) {
-            const statusBadge = ema.status === 'online' 
-                ? '<span class="badge bg-success">Online (Hoy)</span>' 
-                : '<span class="badge bg-danger">Offline</span>';
-
-            // Mostramos la Red en el popup para saber de dónde viene
-            const popupContent = `
-                <h6>${ema.nombre}</h6>
-                <div class="mb-2">
-                    <span class="badge bg-secondary">${ema.red}</span>
-                    ${statusBadge}
-                </div>
-                <small class="d-block text-muted mb-2">${ema.descripcion}</small>
-                <hr>
-                <div class="d-grid gap-2">
-                    <a href="/graficos?ema_id=${encodeURIComponent(ema.id)}" class="btn btn-primary btn-sm py-0">
-                        <i class="bi bi-speedometer2"></i> Ver Dashboard
-                    </a>
+            let popupContent = `
+                <div style="min-width: 200px;">
+                    <h6 class="mb-1">${ema.nombre}</h6>
+                    <small class="text-muted d-block mb-2">${ema.id}</small>
+                    <hr class="my-2">
+                    <div id="popup-sensors-list">
+                        <div class="text-center text-muted small">
+                            <span class="spinner-border spinner-border-sm"></span> Cargando sensores...
+                        </div>
+                    </div>
+                    <hr class="my-2">
+                    <div class="d-grid">
+                        <a href="/graficos?ema_id=${encodeURIComponent(ema.id)}" class="btn btn-primary btn-sm py-0" style="font-size: 0.8rem;">
+                            Ir al Dashboard Completo
+                        </a>
+                    </div>
                 </div>
             `;
-            marker.bindPopup(popupContent).openPopup();
+            
+            const popup = L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
+
+            fetch(`/api/map-status/${encodeURIComponent(ema.id)}`)
+                .then(res => res.json())
+                .then(sensores => {
+                    let htmlList = '<ul class="list-unstyled mb-0 small">';
+                    if (sensores.length === 0) {
+                        htmlList += '<li class="text-muted text-center">Sin sensores configurados.</li>';
+                    } else {
+                        sensores.forEach(s => {
+                            const colorClass = s.estado === 'online' ? 'text-success' : 'text-danger';
+                            const iconClass = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+                            htmlList += `
+                                <li class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="${colorClass}">
+                                        <i class="bi ${iconClass}"></i> ${s.nombre}
+                                    </span>
+                                    <span class="fw-bold">${s.valor}</span>
+                                </li>
+                            `;
+                        });
+                    }
+                    htmlList += '</ul>';
+                    const container = document.getElementById('popup-sensors-list');
+                    if(container) container.innerHTML = htmlList;
+                })
+                .catch(err => {
+                    const container = document.getElementById('popup-sensors-list');
+                    if(container) container.innerHTML = '<p class="text-danger small text-center">Error cargando datos.</p>';
+                });
         }
 
         populateFilters();
         updateMap();
-
         triggers.forEach(t => t.addEventListener('change', updateMap));
     });
 </script>

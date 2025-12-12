@@ -8,12 +8,10 @@ from .models import EstacionSimparh, MedicionEMA
 def create_excel_from_dataframe(df):
     output = io.BytesIO()
     df_clean = df.loc[:, ~df.columns.duplicated()]
-    # Eliminamos columnas técnicas si existen
     cols_drop = ['key_unica_mediciones_ema', 'geom', 'id']
     for c in cols_drop:
         if c in df_clean.columns: df_clean.drop(columns=[c], inplace=True)
     
-    # Reordenamos para que Partido y Descripción aparezcan primero (si existen)
     cols = df_clean.columns.tolist()
     first_cols = ['id_proyecto', 'partido', 'descripcion', 'Sensor', 'fecha', 'dia', 'hora', 'valor']
     new_order = [c for c in first_cols if c in cols] + [c for c in cols if c not in first_cols]
@@ -24,6 +22,16 @@ def create_excel_from_dataframe(df):
 
 def get_all_stations_repo():
     return EstacionSimparh.query.order_by(EstacionSimparh.ubicacion).all()
+
+def get_active_stations_ids_today():
+    hoy_inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        results = db.session.query(distinct(MedicionEMA.id_proyecto))\
+                    .filter(MedicionEMA.fecha >= hoy_inicio).all()
+        return {row[0] for row in results if row[0]}
+    except Exception as e:
+        print(f"Error consultando estado: {e}")
+        return set()
 
 def get_sensors_for_station_repo(id_proyecto_str):
     mapa_flags = [
@@ -136,29 +144,18 @@ def get_sensors_for_station_repo(id_proyecto_str):
                     ya_esta = True
                     break
             if not ya_esta:
-                sensors.append({
-                    'id': 100 + len(sensors), 
-                    'nombre': nom_disp + " (Sin Datos)", 
-                    'table_name': m_db, 
-                    'search_text': nom_disp.lower(), 
-                    'fecha_inicio': 'N/A'
-                })
+                sensors.append({'id': 100 + len(sensors), 'nombre': nom_disp + " (Sin Datos)", 'table_name': m_db, 'search_text': nom_disp.lower(), 'fecha_inicio': 'N/A'})
 
     return sensors
 
 def get_dashboard_data_repo(id_proyecto_str):
     data = {}
     metricas = {
-        'temperatura': ('Temp Atmosferica', 'last'), 
-        'nivel_max_hoy': ('Limnigrafica', 'max_today'),
-        'pluvio_sum_hoy': ('Pluviometrica', 'sum_today'), 
-        'viento_vel': ('Anemometrica', 'last'),
-        'viento_dir': ('Direccion Viento', 'last'), 
-        'presion': ('Barometrica', 'last'), 
-        'bateria': ('Bateria', 'last')
+        'temperatura': ('Temp Atmosferica', 'last'), 'nivel_max_hoy': ('Limnigrafica', 'max_today'),
+        'pluvio_sum_hoy': ('Pluviometrica', 'sum_today'), 'viento_vel': ('Anemometrica', 'last'),
+        'viento_dir': ('Direccion Viento', 'last'), 'presion': ('Barometrica', 'last'), 'bateria': ('Bateria', 'last')
     }
     hoy = datetime.now().date()
-    
     for key, (metrica, modo) in metricas.items():
         try:
             q = db.session.query(MedicionEMA).filter_by(id_proyecto=id_proyecto_str, metrica=metrica)
@@ -181,20 +178,60 @@ def get_dashboard_data_repo(id_proyecto_str):
         except: pass
     return data
 
+def get_map_popup_status_repo(id_proyecto_str):
+    sensores_config = get_sensors_for_station_repo(id_proyecto_str)
+    resultado = []
+    hoy_inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    for sensor in sensores_config:
+        metrica_real = sensor['table_name']
+        nombre_display = sensor['nombre']
+        
+        estado = 'offline'
+        valor_str = "Sin datos"
+        fecha_str = "-"
+        
+        try:
+            ultimo_dato = db.session.query(MedicionEMA)\
+                .filter_by(id_proyecto=id_proyecto_str, metrica=metrica_real)\
+                .order_by(MedicionEMA.fecha.desc())\
+                .first()
+            
+            if ultimo_dato:
+                if ultimo_dato.fecha >= hoy_inicio:
+                    estado = 'online'
+                
+                fecha_str = ultimo_dato.fecha.strftime('%d/%m %H:%M')
+                val = ultimo_dato.valor
+                
+                if 'Pluvio' in metrica_real: valor_str = f"{val} mm"
+                elif 'Limni' in metrica_real: valor_str = f"{val} m"
+                elif 'Temp' in metrica_real: valor_str = f"{val} °C"
+                elif 'Viento' in metrica_real or 'Anemo' in metrica_real: valor_str = f"{val} km/h"
+                elif 'Bateria' in metrica_real: valor_str = f"{val} V"
+                elif 'Presion' in metrica_real or 'Baro' in metrica_real: valor_str = f"{int(val)} hPa"
+                elif 'Humedad' in metrica_real: valor_str = f"{int(val)} %"
+                else: valor_str = str(val)
+                
+        except Exception as e:
+            print(f"Error popup sensor {metrica_real}: {e}")
+
+        resultado.append({'nombre': nombre_display, 'valor': valor_str, 'fecha': fecha_str, 'estado': estado})
+        
+    return resultado
+
 def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica, tipo_proceso='raw'):
     if isinstance(fecha_fin, str):
         fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
     
-    # --- MODIFICACIÓN IMPORTANTE: Unimos con la tabla de Estaciones ---
     query = db.session.query(
         MedicionEMA.fecha, 
         MedicionEMA.valor, 
         MedicionEMA.id_proyecto,
-        EstacionSimparh.partido,               # Traemos Partido
-        EstacionSimparh.ubicacion.label('descripcion') # Traemos Descripción (como 'descripcion')
+        EstacionSimparh.partido,               
+        EstacionSimparh.ubicacion.label('descripcion')
     ).join(EstacionSimparh, MedicionEMA.id_proyecto == EstacionSimparh.id_proyecto)
     
-    # Filtros
     query = query.filter(MedicionEMA.fecha >= fecha_inicio, MedicionEMA.fecha <= fecha_fin)
     
     if metrica == 'Calidad':
@@ -215,17 +252,14 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
     
     if df.empty: return df
     
-    # --- PROCESAMIENTO (Incluyendo las nuevas columnas en el agrupado) ---
-    
-    # Columnas que siempre queremos conservar
+    # --- LOGICA DE AGREGACIÓN BLINDADA ---
     meta_cols = ['id_proyecto', 'partido', 'descripcion']
 
-    if tipo_proceso == 'pluvio_sum':
+    if tipo_proceso == 'pluvio_sum' or tipo_proceso == 'daily_sum':
         df['dia'] = df['fecha'].dt.date
-        # Agrupamos por meta_cols + dia para no perder la info
         df = df.groupby(meta_cols + ['dia'])['valor'].sum().reset_index()
         
-    elif tipo_proceso == 'nivel_max':
+    elif tipo_proceso == 'nivel_max' or tipo_proceso == 'daily_max':
         df['dia'] = df['fecha'].dt.date
         df = df.groupby(meta_cols + ['dia'])['valor'].max().reset_index()
         
@@ -233,6 +267,26 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
         df['hora'] = df['fecha'].dt.floor('H')
         df = df.groupby(meta_cols + ['hora'])['valor'].mean().reset_index()
         
-    # Si es 'raw', las columnas partido y descripcion ya vienen en el df original del JOIN
+    elif tipo_proceso == 'daily_min_max':
+        df['dia'] = df['fecha'].dt.date
+        # --- AQUÍ ESTABA EL PROBLEMA DE MULTIINDEX ---
+        # 1. Agrupamos y calculamos
+        grouped = df.groupby(meta_cols + ['dia'])['valor'].agg(['min', 'max']).reset_index()
+        # 2. Nos aseguramos de que las columnas tengan nombres planos y simples
+        # Pandas puede generar ('valor', 'min'), así que renombramos explícitamente
+        grouped.columns = [c[0] if isinstance(c, tuple) else c for c in grouped.columns] # Aplanar por si acaso
+        # Renombramos las ultimas dos que son min y max
+        grouped.rename(columns={'min': 'valor_min', 'max': 'valor_max'}, inplace=True)
+        df = grouped
+        
+    elif tipo_proceso == 'daily_avg':
+        df['dia'] = df['fecha'].dt.date
+        df = df.groupby(meta_cols + ['dia'])['valor'].mean().reset_index()
+        
+    # Ordenar por fecha siempre, para que el gráfico no haga zigzag
+    if 'dia' in df.columns:
+        df = df.sort_values('dia')
+    elif 'hora' in df.columns:
+        df = df.sort_values('hora')
         
     return df

@@ -8,7 +8,6 @@ main_bp = Blueprint('main', __name__)
 @main_bp.route('/')
 @login_required
 def index():
-    # Mapa
     locations = services.get_all_unified_locations_service()
     return render_template('index.html', ema_locations=locations, owm_api_key=config.OWM_API_KEY)
 
@@ -22,7 +21,6 @@ def report_page():
 @login_required
 def chart_dashboard_page():
     emas = services.get_unified_ema_list_service()
-    # Primera por defecto
     sel_id = emas[0][0] if emas else 0
     data = {}
     if sel_id:
@@ -40,7 +38,6 @@ def custom_chart_page():
 @main_bp.route('/get-sensors/<string:ema_id>')
 @login_required
 def get_sensors_for_ema(ema_id):
-    # ema_id viene simple ahora (ej: "5")
     sensors = services.get_sensors_for_ema_service(None, ema_id)
     return jsonify(sensors)
 
@@ -66,7 +63,6 @@ def download_report():
 @main_bp.route('/api/get-chart-data')
 @login_required
 def get_chart_data():
-    # Wrapper simple
     try:
         data = services.get_chart_data_service(
             None, 
@@ -76,6 +72,16 @@ def get_chart_data():
             request.args.get('fecha_fin'),
             request.args.get('combine') == 'true'
         )
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# --- RUTA NUEVA PARA EL POPUP DEL MAPA ---
+@main_bp.route('/api/map-status/<string:ema_id>')
+@login_required
+def get_map_status_api(ema_id):
+    try:
+        data = services.get_map_popup_status_service(None, ema_id)
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
