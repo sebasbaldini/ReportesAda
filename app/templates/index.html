@@ -144,6 +144,13 @@
         }
 
         function openPopup(marker, ema) {
+            // 1. Generamos la URL base usando Jinja (Flask lo procesa antes)
+            const baseUrl = "{{ url_for('main.chart_dashboard_page') }}";
+        
+        // 2. Le pegamos el ID de la estación seleccionada
+            const targetUrl = `${baseUrl}?ema_id=${ema.id}`;
+
+        // 3. Usamos esa URL en el botón del popup
             let popupContent = `
                 <div style="min-width: 200px;">
                     <h6 class="mb-1">${ema.nombre}</h6>
@@ -156,8 +163,8 @@
                     </div>
                     <hr class="my-2">
                     <div class="d-grid">
-                        <a href="/graficos?ema_id=${encodeURIComponent(ema.id)}" class="btn btn-primary btn-sm py-0" style="font-size: 0.8rem;">
-                            Ir al Dashboard Completo
+                        <a href="${targetUrl}" class="btn btn-sm btn-primary w-100 text-white">
+                            <i class="bi bi-speedometer2"></i> Ver Dashboard
                         </a>
                     </div>
                 </div>

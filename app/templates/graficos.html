@@ -153,15 +153,36 @@
     
     document.addEventListener('DOMContentLoaded', function() {
         
-        // --- Referencias (sin cambios) ---
-        const emaSelect = document.getElementById('ema_select_dashboard');
+        // --- Referencias ---
+        const params = new URLSearchParams(window.location.search);
+        const emaId = params.get('ema_id');
+        // AQUÍ ESTABA LA CLAVE: El ID real es 'ema_select_dashboard'
+        const emaSelect = document.getElementById('ema_select_dashboard'); 
         const widgetContainer = document.getElementById('dashboard-widgets-container');
         const loader = document.getElementById('dashboard-loader');
         const templates = document.getElementById('widget-templates');
         
         let compassChart = null; 
 
-        // --- ¡FUNCIÓN 'renderDashboard' MODIFICADA! ---
+        // --- LÓGICA DE AUTO-SELECCIÓN CORREGIDA ---
+        if (emaId && emaSelect) {
+            // 1. Intentamos poner el valor del ID que viene en la URL
+            emaSelect.value = emaId;
+
+            // 2. Verificamos si el valor realmente cambió (significa que el ID existe en la lista)
+            if (emaSelect.value === emaId) {
+                // 3. Importante: Disparamos manualmente el evento para cargar los datos
+                // (esto evita tener que esperar a que el usuario haga clic)
+                
+                // Pequeño timeout para asegurar que el resto de scripts estén listos
+                setTimeout(() => {
+                    const event = new Event('change');
+                    emaSelect.dispatchEvent(event);
+                }, 100);
+            }
+        }
+
+        // --- ¡FUNCIÓN 'renderDashboard' (Igual que antes) ---
         function renderDashboard(data) {
             widgetContainer.innerHTML = '';
             if (compassChart) {
@@ -230,7 +251,6 @@
                 renderCompassChart(canvas, dir_num, dir_str);
             }
 
-            // --- ¡NUEVO! ---
             // 5. Widget de Batería
             if (data.bateria) {
                 const widget = templates.content.querySelector('[data-widget="bateria"]').cloneNode(true);
@@ -266,7 +286,7 @@
                     datasets: [{
                         data: [1, 1, 1, 1, 1, 1, 1, 1], 
                         backgroundColor: [
-                            'rgba(220, 53, 69, 0.7)', // N (Rojo)
+                            'rgba(220, 53, 69, 0.7)',
                             '#f8f9fa', '#f8f9fa', '#f8f9fa',
                             '#f8f9fa', '#f8f9fa', '#f8f9fa',
                             '#f8f9fa'
@@ -322,46 +342,45 @@
         // --- (Función 'loadDataForEma' - sin cambios) ---
         async function loadDataForEma(emaId) {
             showLoader(true);
-            
             try {
+                // Reemplazamos el '0' por el ID real
                 const url = `{{ url_for('main.get_dashboard_data', ema_id=0) }}`.replace('0', emaId);
                 const response = await fetch(url);
                 
-                if (!response.ok) {
-                    throw new Error(`Error ${response.status} del servidor.`);
-                }
-                
+                if (!response.ok) throw new Error(`Error ${response.status}`);
                 const data = await response.json();
                 
-                if (data.error) {
-                    throw new Error(data.error);
-                }
+                if (data.error) throw new Error(data.error);
                 
                 showLoader(false); 
                 renderDashboard(data);
                 
             } catch (error) {
-                console.error("Error al cargar datos del dashboard:", error);
-                widgetContainer.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error al cargar los datos: ${error.message}</div></div>`;
+                console.error("Error dashboard:", error);
+                widgetContainer.innerHTML = `<div class="col-12"><div class="alert alert-danger">Error: ${error.message}</div></div>`;
                 showLoader(false); 
             } 
         }
         
-        // --- (Función 'showLoader' - sin cambios) ---
         function showLoader(show) {
             loader.style.display = show ? 'block' : 'none';
             widgetContainer.style.display = show ? 'none' : 'flex'; 
         }
 
-        // --- (Event Listener 'change' - sin cambios) ---
-        emaSelect.addEventListener('change', function() {
-            const selectedEmaId = this.value;
-            loadDataForEma(selectedEmaId);
-        });
+        // Evento cambio manual
+        if (emaSelect) {
+            emaSelect.addEventListener('change', function() {
+                loadDataForEma(this.value);
+            });
+        }
         
-        // --- Carga Inicial (sin cambios) ---
-        const initialData = {{ dashboard_data | tojson }};
-        renderDashboard(initialData);
+        // Carga Inicial por defecto (solo si NO se disparó la selección automática)
+        // Si hay emaId en la URL, el evento 'change' disparado arriba se encargará de cargar los datos.
+        // Si NO hay emaId, mostramos los datos iniciales que vienen del servidor.
+        if (!emaId) {
+            const initialData = {{ dashboard_data | tojson }};
+            renderDashboard(initialData);
+        }
 
     });
 </script>
