@@ -23,40 +23,38 @@ def load_user(user_id):
 
 # --- MODELOS DE BASE DE DATOS (ESQUEMA CUENCAS) ---
 
+# app/models.py
+
 class EstacionSimparh(db.Model):
     __tablename__ = 'estaciones_simparh'
-    __table_args__ = {'schema': 'cuencas'}
+    __table_args__ = {"schema": "cuencas"}
+
+    id = db.Column(db.Integer, primary_key=True)
+    id_proyecto = db.Column(db.String(50))
+    proyecto = db.Column(db.String(100))
+    ubicacion = db.Column(db.String(150))
     
-    # Llave primaria real de la base de datos (según tu foto es 'id')
-    id = db.Column(db.String, primary_key=True)
+    # Acordate que agregamos pdo y dejamos partido
+    pdo = db.Column(db.String(100)) 
+    partido = db.Column(db.String(100))
     
-    # Esta es la columna que usamos para relacionar (y para el listado)
-    # Le ponemos unique=True para poder buscar rápido por ella
-    id_proyecto = db.Column(db.String, unique=True)
-    
-    # --- ¡ESTA ERA LA COLUMNA QUE FALTABA! ---
-    proyecto = db.Column(db.String) 
-    
-    # Columnas informativas
-    ubicacion = db.Column(db.String)
-    pdo = db.Column(db.String)
-    cuenca = db.Column(db.String)
-    
-    # Geometría
-    geom = db.Column(Geometry('POINT', srid=4326))
+    cuenca = db.Column(db.String(100))
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
+    geom = db.Column(Geometry('POINT', srid=4326))
     
     # Flags de sensores
-    pluv = db.Column(db.String)
-    limn = db.Column(db.String)
-    viento = db.Column(db.String)
-    temp_hum = db.Column(db.String)
-    rad_solar = db.Column(db.String)
-    freat = db.Column(db.String)
-    calidad = db.Column(db.String)
-    
-    estado_estacion = db.Column(db.String)
+    pluv = db.Column(db.Boolean)
+    limn = db.Column(db.Boolean)
+    viento = db.Column(db.Boolean)
+    temp_hum = db.Column(db.Boolean)
+    rad_solar = db.Column(db.Boolean)
+    freat = db.Column(db.Boolean)
+    calidad = db.Column(db.Boolean)
+
+    # --- BORRA O COMENTA ESTA LÍNEA SI EXISTE ---
+    # estado_estacion = db.Column(db.String(...))  <-- ESTO ES LO QUE DA ERROR
+    # --------------------------------------------
 
 class MedicionEMA(db.Model):
     __tablename__ = 'mediciones_ema'
