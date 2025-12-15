@@ -12,6 +12,14 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30)
 
+    # --- AGREGAR ESTO AQUÍ ---
+    # Esto soluciona el error "server closed the connection unexpectedly"
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        "pool_pre_ping": True,  # Verifica si la conexión está viva antes de usarla
+        "pool_recycle": 300,    # Renueva conexiones cada 5 minutos
+    }
+    # -------------------------
+
     # Inicializar extensiones
     db.init_app(app)
     login_manager.init_app(app)
