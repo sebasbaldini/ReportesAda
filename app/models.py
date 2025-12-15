@@ -39,7 +39,7 @@ class EstacionSimparh(db.Model):
     
     # Columnas informativas
     ubicacion = db.Column(db.String)
-    partido = db.Column(db.String)
+    pdo = db.Column(db.String)
     cuenca = db.Column(db.String)
     
     # Geometría

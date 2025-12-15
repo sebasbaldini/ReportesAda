@@ -8,12 +8,23 @@ from .models import EstacionSimparh, MedicionEMA
 def create_excel_from_dataframe(df):
     output = io.BytesIO()
     df_clean = df.loc[:, ~df.columns.duplicated()]
+    
+    # Eliminamos columnas técnicas que no sirven en el reporte
     cols_drop = ['key_unica_mediciones_ema', 'geom', 'id']
     for c in cols_drop:
         if c in df_clean.columns: df_clean.drop(columns=[c], inplace=True)
     
+    # --- CAMBIO AQUÍ: RENOMBRAR COLUMNA ---
+    # Si la columna se llama 'pdo' (dato limpio), la renombramos a 'partido' (nombre bonito)
+    if 'pdo' in df_clean.columns:
+        df_clean.rename(columns={'pdo': 'partido'}, inplace=True)
+    # --------------------------------------
+
     cols = df_clean.columns.tolist()
+    
+    # Ahora en la lista de orden usamos 'partido' porque ya la renombramos arriba
     first_cols = ['id_proyecto', 'partido', 'descripcion', 'Sensor', 'fecha', 'dia', 'hora', 'valor']
+    
     new_order = [c for c in first_cols if c in cols] + [c for c in cols if c not in first_cols]
     df_clean = df_clean[new_order]
 
@@ -178,8 +189,6 @@ def get_dashboard_data_repo(id_proyecto_str):
         except: pass
     return data
 
-# --- BUSCA ESTA FUNCIÓN Y REEMPLÁZALA COMPLETA ---
-
 def get_map_popup_status_repo(id_proyecto_str):
     sensores_config = get_sensors_for_station_repo(id_proyecto_str)
     resultado = []
@@ -189,31 +198,23 @@ def get_map_popup_status_repo(id_proyecto_str):
         metrica_real = sensor['table_name']
         nombre_display = sensor['nombre']
         
-        # Valores por defecto
         estado = 'offline'
         valor_str = "Sin datos"
         fecha_str = "-"
         
         try:
-            # Buscamos el ÚLTIMO dato registrado
             ultimo_dato = db.session.query(MedicionEMA)\
                 .filter_by(id_proyecto=id_proyecto_str, metrica=metrica_real)\
                 .order_by(MedicionEMA.fecha.desc())\
                 .first()
             
-            # --- CAMBIO CLAVE AQUÍ ---
-            # Solo agregamos el sensor a la lista SI existe algún dato histórico.
-            # Si ultimo_dato es None, significa que nunca midió nada, así que lo ignoramos (continue).
             if ultimo_dato:
-                
-                # Chequeo de frescura (Verde/Rojo)
                 if ultimo_dato.fecha >= hoy_inicio:
                     estado = 'online'
                 
                 fecha_str = ultimo_dato.fecha.strftime('%d/%m %H:%M')
                 val = ultimo_dato.valor
                 
-                # Formato bonito de unidades
                 if 'Pluvio' in metrica_real: valor_str = f"{val} mm"
                 elif 'Limni' in metrica_real: valor_str = f"{val} m"
                 elif 'Temp' in metrica_real: valor_str = f"{val} °C"
@@ -223,7 +224,6 @@ def get_map_popup_status_repo(id_proyecto_str):
                 elif 'Humedad' in metrica_real: valor_str = f"{int(val)} %"
                 else: valor_str = str(val)
 
-                # Agregamos a la lista visible SOLO si hay datos
                 resultado.append({
                     'nombre': nombre_display, 
                     'valor': valor_str, 
@@ -231,8 +231,6 @@ def get_map_popup_status_repo(id_proyecto_str):
                     'estado': estado
                 })
             
-            # Si no hay ultimo_dato, el bucle sigue y NO agrega nada a 'resultado'
-                
         except Exception as e:
             print(f"Error popup sensor {metrica_real}: {e}")
 
@@ -242,11 +240,12 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
     if isinstance(fecha_fin, str):
         fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
     
+    # CAMBIO 2: EstacionSimparh.partido -> EstacionSimparh.pdo
     query = db.session.query(
         MedicionEMA.fecha, 
         MedicionEMA.valor, 
         MedicionEMA.id_proyecto,
-        EstacionSimparh.partido,               
+        EstacionSimparh.pdo,               
         EstacionSimparh.ubicacion.label('descripcion')
     ).join(EstacionSimparh, MedicionEMA.id_proyecto == EstacionSimparh.id_proyecto)
     
@@ -270,8 +269,8 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
     
     if df.empty: return df
     
-    # --- LOGICA DE AGREGACIÓN BLINDADA ---
-    meta_cols = ['id_proyecto', 'partido', 'descripcion']
+    # CAMBIO 3: 'partido' -> 'pdo' en la lista de agrupación
+    meta_cols = ['id_proyecto', 'pdo', 'descripcion']
 
     if tipo_proceso == 'pluvio_sum' or tipo_proceso == 'daily_sum':
         df['dia'] = df['fecha'].dt.date
@@ -287,13 +286,8 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
         
     elif tipo_proceso == 'daily_min_max':
         df['dia'] = df['fecha'].dt.date
-        # --- AQUÍ ESTABA EL PROBLEMA DE MULTIINDEX ---
-        # 1. Agrupamos y calculamos
         grouped = df.groupby(meta_cols + ['dia'])['valor'].agg(['min', 'max']).reset_index()
-        # 2. Nos aseguramos de que las columnas tengan nombres planos y simples
-        # Pandas puede generar ('valor', 'min'), así que renombramos explícitamente
-        grouped.columns = [c[0] if isinstance(c, tuple) else c for c in grouped.columns] # Aplanar por si acaso
-        # Renombramos las ultimas dos que son min y max
+        grouped.columns = [c[0] if isinstance(c, tuple) else c for c in grouped.columns] 
         grouped.rename(columns={'min': 'valor_min', 'max': 'valor_max'}, inplace=True)
         df = grouped
         
@@ -301,7 +295,6 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
         df['dia'] = df['fecha'].dt.date
         df = df.groupby(meta_cols + ['dia'])['valor'].mean().reset_index()
         
-    # Ordenar por fecha siempre, para que el gráfico no haga zigzag
     if 'dia' in df.columns:
         df = df.sort_values('dia')
     elif 'hora' in df.columns:
