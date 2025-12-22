@@ -31,8 +31,14 @@ def create_excel_from_dataframe(df):
     df_clean.to_excel(output, index=False, sheet_name='Datos', engine='openpyxl')
     return output
 
+#
 def get_all_stations_repo():
-    return EstacionSimparh.query.order_by(EstacionSimparh.ubicacion).all()
+    # Usamos 'ilike' para que busque "Finalizada", "finalizada", "FINALIZADA", etc.
+    # El % % no es necesario si la palabra es exacta, pero ilike ayuda con mayúsculas.
+    return EstacionSimparh.query\
+        .filter(EstacionSimparh.estado_estacion.ilike('Finalizada'))\
+        .order_by(EstacionSimparh.ubicacion)\
+        .all()
 
 def get_active_stations_ids_today():
     hoy_inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -43,6 +49,8 @@ def get_active_stations_ids_today():
     except Exception as e:
         print(f"Error consultando estado: {e}")
         return set()
+
+# ... (imports anteriores siguen igual)
 
 def get_sensors_for_station_repo(id_proyecto_str):
     mapa_flags = [
@@ -58,6 +66,7 @@ def get_sensors_for_station_repo(id_proyecto_str):
     
     sensors = []
 
+    # Caso especial para "TODAS" (Sin cambios)
     if str(id_proyecto_str) == 'todas':
         seen = set()
         for _, sid, nombre, metrica in mapa_flags:
@@ -76,24 +85,43 @@ def get_sensors_for_station_repo(id_proyecto_str):
             sensors.append({'id': sid, 'nombre': nom, 'table_name': met, 'search_text': nom.lower(), 'fecha_inicio': 'N/A'})
         return sensors
 
+    # --- LÓGICA PARA UNA ESTACIÓN ESPECÍFICA ---
     estacion = EstacionSimparh.query.filter_by(id_proyecto=id_proyecto_str).first()
     if not estacion: return []
 
     for attr, sid, nombre, metrica in mapa_flags:
+        # 1. Verificar si está habilitado por configuración (Base de datos de estaciones)
         val = getattr(estacion, attr)
-        is_active = False
-        if val is True: is_active = True
-        elif isinstance(val, str) and val.lower() in ['true', 't', '1', 's', 'si', 'yes']: is_active = True
+        is_config_active = False
+        if val is True: is_config_active = True
+        elif isinstance(val, str) and val.lower() in ['true', 't', '1', 's', 'si', 'yes']: is_config_active = True
         
-        if is_active:
-            fecha_inicio = "N/A"
+        if is_config_active:
+            # 2. VALIDACIÓN EXTRA (ANTI-FANTASMAS):
+            # Verificar si REALMENTE existe al menos un dato en la tabla de mediciones.
+            # Si está configurado como True, pero no tiene datos históricos, lo ocultamos.
             try:
-                min_date = db.session.query(func.min(MedicionEMA.fecha))\
-                    .filter_by(id_proyecto=id_proyecto_str, metrica=metrica).scalar()
-                if min_date: fecha_inicio = min_date.strftime('%Y-%m-%d')
-            except: pass
-            sensors.append({'id': sid, 'nombre': nombre, 'table_name': metrica, 'search_text': nombre.lower(), 'fecha_inicio': fecha_inicio})
+                # Usamos .first() que es muy rápido, solo queremos saber si existe 1 registro.
+                existe_dato = db.session.query(MedicionEMA.key_unica_mediciones_ema)\
+                    .filter_by(id_proyecto=id_proyecto_str, metrica=metrica)\
+                    .first()
 
+                if existe_dato:
+                    # Si existe dato, buscamos la fecha de inicio
+                    fecha_inicio = "N/A"
+                    min_date = db.session.query(func.min(MedicionEMA.fecha))\
+                        .filter_by(id_proyecto=id_proyecto_str, metrica=metrica).scalar()
+                    if min_date: fecha_inicio = min_date.strftime('%Y-%m-%d')
+                    
+                    sensors.append({'id': sid, 'nombre': nombre, 'table_name': metrica, 'search_text': nombre.lower(), 'fecha_inicio': fecha_inicio})
+            except Exception as e:
+                print(f"Error verificando sensor fantasma {metrica}: {e}")
+                # En caso de error de DB, podrías optar por mostrarlo u ocultarlo. 
+                # Aquí lo ocultamos por seguridad si falla la consulta.
+                pass
+
+    # --- SENSORES NO CONFIGURADOS (Detectados automáticamente) ---
+    # Esto sigue igual: busca cualquier otra cosa que exista en la tabla mediciones
     tiene_calidad = False
     val_cal = getattr(estacion, 'calidad', None)
     if val_cal is True: tiene_calidad = True
@@ -114,6 +142,7 @@ def get_sensors_for_station_repo(id_proyecto_str):
         }
 
         for m_real in metricas_reales_en_db:
+            # Si ya lo agregamos arriba (en el bucle de flags), lo saltamos
             if any(s['table_name'] == m_real for s in sensors): continue
 
             nombre_display = None
@@ -141,6 +170,8 @@ def get_sensors_for_station_repo(id_proyecto_str):
     except Exception as e:
         print(f"Error query metricas: {e}")
 
+    # (El bloque final 'if tiene_calidad' que agrega sensores vacíos lo dejamos o lo quitamos según prefieras. 
+    # Por ahora lo dejo tal cual estaba en tu original, aunque podrías borrarlo si quieres ocultar todo lo vacío).
     if tiene_calidad:
         defaults = [
             ('PH', 'Calidad - pH'),
@@ -158,6 +189,8 @@ def get_sensors_for_station_repo(id_proyecto_str):
                 sensors.append({'id': 100 + len(sensors), 'nombre': nom_disp + " (Sin Datos)", 'table_name': m_db, 'search_text': nom_disp.lower(), 'fecha_inicio': 'N/A'})
 
     return sensors
+
+
 
 def get_dashboard_data_repo(id_proyecto_str):
     data = {}

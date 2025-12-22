@@ -51,6 +51,7 @@ class EstacionSimparh(db.Model):
     rad_solar = db.Column(db.Boolean)
     freat = db.Column(db.Boolean)
     calidad = db.Column(db.Boolean)
+    estado_estacion = db.Column(db.String(50))
 
     # --- BORRA O COMENTA ESTA LÍNEA SI EXISTE ---
     # estado_estacion = db.Column(db.String(...))  <-- ESTO ES LO QUE DA ERROR
