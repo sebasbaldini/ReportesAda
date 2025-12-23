@@ -16,11 +16,12 @@
                 <select id="ema_select" name="ema_id" class="form-select form-select-lg" required 
                         data-sensors-url="{{ url_for('main.get_sensors_for_ema', ema_id='temp-id') }}">
                     <option value="" disabled selected>-- Seleccione una EMA --</option>
+        
                     {% for ema_id, display_text in emas_list %}
                         <option value="{{ ema_id }}">{{ display_text }}</option>
                     {% endfor %}
-                    <option value="todas">-- TODAS LAS EMAs --</option>
-                </select>
+
+                    </select>
             </div>
 
             <div class="col-12">
