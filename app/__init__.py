@@ -35,11 +35,6 @@ def create_app():
         app.register_blueprint(controllers.main_bp)
         app.register_blueprint(auth_controllers.auth_bp)
         
-        # Contexto global para templates (Nombre DB actual)
-        @app.context_processor
-        def inject_context():
-            return dict(current_db_name="PostgreSQL Unificada")
-
         # Crear tablas si no existen (opcional, útil la primera vez)
         db.create_all()
 

@@ -5,8 +5,16 @@
 {% block content %}
 <div class="card shadow-sm border-0">
 <div class="card-body p-4 p-md-5">
+    <div class="alert alert-warning d-flex align-items-center mt-3" role="alert">
+        <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
+            <div>
+                <strong>Nota Importante:</strong>
+                Los datos presentados en estos reportes son <b>crudos y preliminares</b>. 
+                Provienen de telemetría automática y aún no han pasado por el proceso de validación técnica manual.
+            </div>
+        </div>
 
-    <h1 class="h3 mb-3">Generador de Reportes - {{ current_db_name }}</h1>
+    <h1 class="h3 mb-3">Generador de Reportes</h1>
     <p class="text-muted mb-4">Seleccione los filtros para descargar el reporte en formato Excel.</p>
 
     <form action="{{ url_for('main.download_report') }}" method="POST">
