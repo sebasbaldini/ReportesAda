@@ -5,26 +5,54 @@ from sqlalchemy import func, or_, distinct
 from .extensions import db
 from .models import EstacionSimparh, MedicionEMA
 
+#
 def create_excel_from_dataframe(df):
     output = io.BytesIO()
+    # Evitamos columnas duplicadas por si acaso
     df_clean = df.loc[:, ~df.columns.duplicated()]
     
-    # Eliminamos columnas técnicas que no sirven en el reporte
+    # Eliminamos columnas técnicas
     cols_drop = ['key_unica_mediciones_ema', 'geom', 'id']
     for c in cols_drop:
         if c in df_clean.columns: df_clean.drop(columns=[c], inplace=True)
     
-    # --- CAMBIO AQUÍ: RENOMBRAR COLUMNA ---
-    # Si la columna se llama 'pdo' (dato limpio), la renombramos a 'partido' (nombre bonito)
+    # Renombramos pdo a partido (esto ya lo tenías)
     if 'pdo' in df_clean.columns:
         df_clean.rename(columns={'pdo': 'partido'}, inplace=True)
-    # --------------------------------------
+
+    # --- NUEVO ORDENAMIENTO (AGREGAR ESTO) ---
+    # Esto soluciona que la info salga mezclada.
+    # Ordenamos por: 1. Partido, 2. EMA (descripción), 3. Fecha
+    columnas_orden = []
+    
+    # Prioridad 1: Agrupar por Municipio
+    if 'partido' in df_clean.columns:
+        columnas_orden.append('partido')
+        
+    # Prioridad 2: Agrupar por Estación (para que los días salgan pegados)
+    # Usamos 'descripcion' (ubicación) o 'id_proyecto'
+    if 'descripcion' in df_clean.columns:
+        columnas_orden.append('descripcion')
+    elif 'id_proyecto' in df_clean.columns:
+        columnas_orden.append('id_proyecto')
+        
+    # Prioridad 3: Orden cronológico dentro de cada estación
+    if 'fecha' in df_clean.columns:
+        columnas_orden.append('fecha')
+    elif 'dia' in df_clean.columns:   # Para reportes de sumas diarias
+        columnas_orden.append('dia')
+    elif 'hora' in df_clean.columns:  # Para promedios horarios
+        columnas_orden.append('hora')
+
+    # Aplicamos el ordenamiento a la tabla
+    if columnas_orden:
+        df_clean = df_clean.sort_values(by=columnas_orden, ascending=True)
+    # -----------------------------------------
 
     cols = df_clean.columns.tolist()
     
-    # Ahora en la lista de orden usamos 'partido' porque ya la renombramos arriba
+    # Mantenemos tu lógica de orden visual de columnas
     first_cols = ['id_proyecto', 'partido', 'descripcion', 'Sensor', 'fecha', 'dia', 'hora', 'valor']
-    
     new_order = [c for c in first_cols if c in cols] + [c for c in cols if c not in first_cols]
     df_clean = df_clean[new_order]
 
