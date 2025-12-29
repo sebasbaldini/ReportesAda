@@ -25,9 +25,9 @@ def get_all_unified_locations_service():
             result.append({
                 'id': s.id_proyecto,
                 'nombre': s.ubicacion or s.id_proyecto, 
-                'descripcion': f"Cuenca: {s.cuenca} | Partido: {s.pdo}",
+                'descripcion': f"Cuenca: {s.nomcuenca} | Partido: {s.pdo}",
                 'lat': s.latitude, 'lon': s.longitude, 'source_db': 'postgres',
-                'partido': s.pdo or "Sin Definir", 'cuenca': s.cuenca or "Sin Definir",
+                'partido': s.pdo or "Sin Definir", 'cuenca': s.nomcuenca or "Sin Definir",
                 'red': tipo_red, 'status': estado 
             })
     return result

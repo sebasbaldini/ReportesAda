@@ -112,6 +112,15 @@
         {% endif %}
         
         <div id="page-content-wrapper">
+            
+            <nav class="navbar navbar-light bg-light border-bottom d-md-none mb-3">
+                <div class="container-fluid">
+                    <button class="btn btn-primary" id="menu-toggle">
+                        <i class="bi bi-list"></i> Menú
+                    </button>
+                    <span class="navbar-brand ms-2 small fw-bold">SIMPARH</span>
+                </div>
+            </nav>
             {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
                     <div class="container-fluid pt-3">
@@ -130,5 +139,17 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        const menuToggle = document.getElementById('menu-toggle');
+        const wrapper = document.getElementById('wrapper');
+        
+        if (menuToggle) {
+            menuToggle.addEventListener('click', function(e) {
+                e.preventDefault();
+                wrapper.classList.toggle('toggled');
+            });
+        }
+    </script>
 </body>
 </html>

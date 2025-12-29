@@ -3,6 +3,15 @@
 {% block title %}Mapa Interactivo - SIMPARH{% endblock %}
 
 {% block content %}
+<style>
+    /* Ajuste específico para móvil: descontar la altura de la navbar (aprox 60px) */
+    @media (max-width: 768px) {
+        .full-screen-map-container {
+            height: calc(100vh - 60px) !important;
+        }
+    }
+</style>
+
 <div class="full-screen-map-container">
     <div id="map" class="full-h"></div>
 </div>
@@ -127,8 +136,8 @@
                     const icon = (ema.status === 'online') ? iconOnline : iconOffline;
                     const marker = L.marker([ema.lat, ema.lon], { icon: icon });
                     
-                    marker.bindTooltip(`<b>${ema.nombre}</b>`, { 
-                        permanent: true,
+                    marker.bindTooltip(ema.nombre, { 
+                        permanent: false,
                         direction: 'top',
                         className: 'ema-label', 
                         offset: [0, -10]

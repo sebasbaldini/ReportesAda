@@ -306,7 +306,8 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
         MedicionEMA.fecha, 
         MedicionEMA.valor, 
         MedicionEMA.id_proyecto,
-        EstacionSimparh.pdo,               
+        EstacionSimparh.pdo,  
+        EstacionSimparh,nomcuenca,             
         EstacionSimparh.ubicacion.label('descripcion')
     ).join(EstacionSimparh, MedicionEMA.id_proyecto == EstacionSimparh.id_proyecto)
     

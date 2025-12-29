@@ -38,7 +38,7 @@ class EstacionSimparh(db.Model):
     pdo = db.Column(db.String(100)) 
     partido = db.Column(db.String(100))
     
-    cuenca = db.Column(db.String(100))
+    nomcuenca = db.Column(db.String(100))
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     geom = db.Column(Geometry('POINT', srid=4326))
