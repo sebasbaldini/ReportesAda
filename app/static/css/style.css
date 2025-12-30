@@ -135,32 +135,40 @@ a.list-group-item {
 /* === RESPONSIVE: MÓVILES (Menos de 768px) === */
 @media (max-width: 768px) {
     
-    /* 1. Ocultar la barra lateral por defecto moviéndola a la izquierda */
     #sidebar-wrapper {
-        margin-left: -260px;
+        margin-left: -260px; /* Oculto por defecto */
+        position: fixed;     /* Flotante */
+        top: 0;
+        left: 0;
+        height: 100vh;
+        z-index: 1050;       /* Por encima de todo */
         transition: margin 0.25s ease-out;
-        position: absolute; /* Para que flote sobre el contenido */
-        height: 100%;
-        z-index: 1000; /* Para que tape el mapa si se abre */
     }
 
-    /* 2. Cuando activamos la clase 'toggled' con el botón, mostramos la barra */
     #wrapper.toggled #sidebar-wrapper {
-        margin-left: 0;
+        margin-left: 0;      /* Visible cuando tiene la clase toggled */
+        box-shadow: 0 0 15px rgba(0,0,0,0.5); /* Sombra para que destaque */
     }
 
-    /* 3. El contenido siempre ocupa el 100% del ancho */
     #page-content-wrapper {
         width: 100%;
-        min-width: 100vw;
+        position: relative;
     }
 
-    /* 4. Ajustes visuales para pantallas chicas */
-    .card-body {
-        padding: 1.5rem !important; /* Menos relleno en tarjetas */
+    /* CAPA DE FONDO (OVERLAY) PARA CERRAR EL MENÚ AL TOCAR AFUERA */
+    #sidebar-overlay {
+        display: none; /* Oculto por defecto */
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.5); /* Fondo negro semitransparente */
+        z-index: 1040; /* Justo debajo del sidebar (1050) pero encima del contenido */
     }
-    
-    h1.h3 {
-        font-size: 1.5rem; /* Títulos un poco más chicos */
+
+    /* Mostrar overlay solo cuando el wrapper está toggled */
+    #wrapper.toggled #sidebar-overlay {
+        display: block;
     }
 }

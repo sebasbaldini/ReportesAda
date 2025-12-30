@@ -8,7 +8,7 @@ from .models import EstacionSimparh, MedicionEMA, RhAforosDw, RhEscalasDw
 
 def create_excel_simple(df):
     output = io.BytesIO()
-    cols_drop = ['geom', 'key_aforo', 'estacion_rel', 'id', 'codigo']
+    cols_drop = ['geom', 'key_aforo', 'estacion_rel', 'id', 'codigo', 'aforador']
     for c in cols_drop:
         if c in df.columns: 
             try: df.drop(columns=[c], inplace=True)

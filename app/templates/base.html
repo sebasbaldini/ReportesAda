@@ -17,8 +17,8 @@
 
     <div id="wrapper">
         
+        {% if current_user.is_authenticated %}
         <div id="sidebar-wrapper">
-            
             <div class="sidebar-heading p-0 bg-transparent text-center">
                 <a href="{{ url_for('main.index') }}" class="d-block">
                     <img src="{{ url_for('static', filename='imagenes/LogoPagina.png') }}" 
@@ -31,10 +31,9 @@
                 <a href="#mapCollapse" class="list-group-item list-group-item-action bg-transparent text-white border-0" data-bs-toggle="collapse" role="button" aria-expanded="false" aria-controls="mapCollapse">
                     <i class="bi bi-map me-2"></i> Mapa <i class="bi bi-chevron-down ms-auto small float-end"></i>
                 </a>
-                
                 <div class="collapse bg-black bg-opacity-25" id="mapCollapse">
                     <div class="list-group list-group-flush">
-                        <a href="{{ url_for('main.index') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                        <a href="{{ url_for('main.index') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0 sidebar-link">
                             <i class="bi bi-arrow-return-right me-2"></i> Ir al Mapa
                         </a>
                         <div class="px-4 pb-3">
@@ -43,11 +42,11 @@
                     </div>
                 </div>
 
-                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0">
+                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0 sidebar-link">
                     <i class="bi bi-speedometer2 me-2"></i> Dashboard
                 </a>
                 
-                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0">
+                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0 sidebar-link">
                     <i class="bi bi-graph-up me-2"></i> Gráficos
                 </a>
                 
@@ -56,13 +55,13 @@
                 </a>
                 <div class="collapse bg-black bg-opacity-25" id="reportsCollapse">
                     <div class="list-group list-group-flush">
-                        <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                        <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0 sidebar-link">
                             <i class="bi bi-broadcast me-2"></i> Reporte de EMAS
                         </a>
-                        <a href="{{ url_for('main.report_aforos_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                        <a href="{{ url_for('main.report_aforos_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0 sidebar-link">
                             <i class="bi bi-water me-2"></i> Reporte de Aforos
                         </a>
-                        <a href="{{ url_for('main.report_escalas_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                        <a href="{{ url_for('main.report_escalas_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0 sidebar-link">
                             <i class="bi bi-ruler me-2"></i> Reporte de Escalas
                         </a>
                     </div>
@@ -70,25 +69,25 @@
             </div>
 
             <div class="list-group list-group-flush border-top border-secondary pb-3">
-                {% if current_user.is_authenticated %}
-                <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action bg-transparent text-danger fw-bold border-0 mt-2">
+                <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action bg-transparent text-danger fw-bold border-0 mt-2 sidebar-link">
                     <i class="bi bi-box-arrow-right me-2"></i> Cerrar Sesión
                 </a>
-                {% else %}
-                <a href="{{ url_for('auth.login') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0 mt-2">
-                    <i class="bi bi-box-arrow-in-right me-2"></i> Iniciar Sesión
-                </a>
-                {% endif %}
             </div>
-
         </div>
+        
+        <div id="sidebar-overlay"></div>
+        {% endif %}
         <div id="page-content-wrapper" class="w-100">
             <nav class="navbar navbar-light bg-light border-bottom px-3">
                 <div class="container-fluid p-0">
+                    
+                    {% if current_user.is_authenticated %}
                     <button class="btn btn-primary d-md-none" id="menu-toggle">
                         <i class="bi bi-list"></i> Menú
                     </button>
+                    {% endif %}
                     
+                   
                 </div>
             </nav>
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -112,12 +111,33 @@
     <script>
         const menuToggle = document.getElementById('menu-toggle');
         const wrapper = document.getElementById('wrapper');
-        if (menuToggle) {
-            menuToggle.addEventListener('click', function(e) {
-                e.preventDefault();
-                wrapper.classList.toggle('toggled');
-            });
+        const overlay = document.getElementById('sidebar-overlay');
+        const sidebarLinks = document.querySelectorAll('.sidebar-link');
+
+        function toggleMenu(e) {
+            if(e) e.preventDefault();
+            wrapper.classList.toggle('toggled');
         }
+
+        function closeMenu() {
+            wrapper.classList.remove('toggled');
+        }
+
+        if (menuToggle) {
+            menuToggle.addEventListener('click', toggleMenu);
+        }
+
+        if (overlay) {
+            overlay.addEventListener('click', closeMenu);
+        }
+
+        sidebarLinks.forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth < 768) { 
+                    closeMenu();
+                }
+            });
+        });
     </script>
 </body>
 </html>
