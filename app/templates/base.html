@@ -17,108 +17,78 @@
 
     <div id="wrapper">
         
-        {% if current_user.is_authenticated %}
         <div id="sidebar-wrapper">
             
             <div class="sidebar-heading p-0 bg-transparent text-center">
                 <a href="{{ url_for('main.index') }}" class="d-block">
                     <img src="{{ url_for('static', filename='imagenes/LogoPagina.png') }}" 
-                         alt="SIMPARH" 
-                         style="width: 100%; height: auto; display: block;">
+                         alt="SIMPARH" class="img-fluid" style="max-height: 80px; width: auto;">
                 </a>
             </div>
-            
-            <div class="list-group list-group-flush">
+
+            <div class="list-group list-group-flush flex-grow-1">
                 
-                {% if request.endpoint == 'main.index' %}
-                    <button class="list-group-item list-group-item-action text-white active" type="button" data-bs-toggle="collapse" data-bs-target="#mapFiltersCollapse" aria-expanded="false" aria-controls="mapFiltersCollapse">
-                        <i class="bi bi-map me-2"></i> Mapa / Filtros <i class="bi bi-chevron-down float-end small mt-1"></i>
-                    </button>
-                    
-                    <div class="collapse bg-white text-dark shadow-sm" id="mapFiltersCollapse">
-                        <div class="p-3 small">
-                            
-                            <div class="mb-2">
-                                <label class="form-label fw-bold text-secondary mb-1">Municipio:</label>
-                                <select id="selectPartido" class="form-select form-select-sm border-secondary filter-trigger">
-                                    <option value="" selected></option>
-                                </select>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label fw-bold text-secondary mb-1">Cuenca:</label>
-                                <select id="selectCuenca" class="form-select form-select-sm border-secondary filter-trigger">
-                                    <option value="" selected></option>
-                                </select>
-                            </div>
-
-                            <div class="d-flex justify-content-between mb-2 fw-bold" style="font-size: 0.75rem;">
-                                <span><i class="bi bi-circle-fill text-success"></i> Online</span>
-                                <span><i class="bi bi-circle-fill text-danger"></i> Offline</span>
-                            </div>
-                            
-                            <div class="text-center text-muted fst-italic" id="stationsCount">
-                                Cargando...
-                            </div>
-
-                        </div>
-                    </div>
-                {% else %}
-                    <a href="{{ url_for('main.index') }}" class="list-group-item list-group-item-action text-white">
-                        <i class="bi bi-map me-2"></i> Mapa Unificado
-                    </a>
-                {% endif %}
-                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action text-white {% if request.endpoint == 'main.custom_chart_page' %}active{% endif %}">
-                    <i class="bi bi-graph-up-arrow me-2"></i> Gráficos
-                </a>
-
-                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action text-white {% if request.endpoint == 'main.chart_dashboard_page' %}active{% endif %}">
-                    <i class="bi bi-speedometer2 me-2"></i> Dashboard
-                </a>
-
-                <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action text-white {% if request.endpoint == 'main.report_page' %}active{% endif %}">
-                    <i class="bi bi-file-earmark-spreadsheet me-2"></i> Reportes
+                <a href="#mapCollapse" class="list-group-item list-group-item-action bg-transparent text-white border-0" data-bs-toggle="collapse" role="button" aria-expanded="false" aria-controls="mapCollapse">
+                    <i class="bi bi-map me-2"></i> Mapa <i class="bi bi-chevron-down ms-auto small float-end"></i>
                 </a>
                 
-                <button class="list-group-item list-group-item-action text-white" type="button" data-bs-toggle="collapse" data-bs-target="#contactInfoCollapse" aria-expanded="false" aria-controls="contactInfoCollapse">
-                    <i class="bi bi-person-lines-fill me-2"></i> Contacto <i class="bi bi-chevron-down ms-auto" style="font-size: 0.8em;"></i>
-                </button>
-                
-                <div class="collapse bg-black bg-opacity-25" id="contactInfoCollapse">
-                    <div class="p-3 text-white small">
-                        <h6 class="text-uppercase fw-bold mb-2 text-warning" style="font-size: 0.75rem;">Autoridad del Agua</h6>
-                        
-                        <a href="http://www.ada.gba.gov.ar" target="_blank" class="d-block text-decoration-none text-light mb-1">
-                            <i class="bi bi-globe"></i> Web ADA
+                <div class="collapse bg-black bg-opacity-25" id="mapCollapse">
+                    <div class="list-group list-group-flush">
+                        <a href="{{ url_for('main.index') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                            <i class="bi bi-arrow-return-right me-2"></i> Ir al Mapa
                         </a>
-                        <a href="mailto:vbarbero@ada.gba.gov.ar" class="d-block text-decoration-none text-light mb-1">
-                            <i class="bi bi-envelope"></i> vbarbero@ada.gba.gov.ar
-                        </a>
-                        <div class="text-light">
-                            <i class="bi bi-telephone"></i> +54 0221-4163012
+                        <div class="px-4 pb-3">
+                            {% block map_filters %}{% endblock %}
                         </div>
                     </div>
                 </div>
 
+                <a href="{{ url_for('main.chart_dashboard_page') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0">
+                    <i class="bi bi-speedometer2 me-2"></i> Dashboard
+                </a>
+                
+                <a href="{{ url_for('main.custom_chart_page') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0">
+                    <i class="bi bi-graph-up me-2"></i> Gráficos
+                </a>
+                
+                <a href="#reportsCollapse" class="list-group-item list-group-item-action bg-transparent text-white border-0" data-bs-toggle="collapse" role="button" aria-expanded="false" aria-controls="reportsCollapse">
+                    <i class="bi bi-file-earmark-text me-2"></i> Reportes <i class="bi bi-chevron-down ms-auto small float-end"></i>
+                </a>
+                <div class="collapse bg-black bg-opacity-25" id="reportsCollapse">
+                    <div class="list-group list-group-flush">
+                        <a href="{{ url_for('main.report_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                            <i class="bi bi-broadcast me-2"></i> Reporte de EMAS
+                        </a>
+                        <a href="{{ url_for('main.report_aforos_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                            <i class="bi bi-water me-2"></i> Reporte de Aforos
+                        </a>
+                        <a href="{{ url_for('main.report_escalas_page') }}" class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0">
+                            <i class="bi bi-ruler me-2"></i> Reporte de Escalas
+                        </a>
+                    </div>
+                </div>
             </div>
 
-            <div class="sidebar-footer">
-                <small class="text-white-50 d-block mb-2 text-center">Usuario: {{ current_user.username }}</small>
-                <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-light btn-sm w-100">
-                    <i class="bi bi-box-arrow-right"></i> Cerrar Sesión
+            <div class="list-group list-group-flush border-top border-secondary pb-3">
+                {% if current_user.is_authenticated %}
+                <a href="{{ url_for('auth.logout') }}" class="list-group-item list-group-item-action bg-transparent text-danger fw-bold border-0 mt-2">
+                    <i class="bi bi-box-arrow-right me-2"></i> Cerrar Sesión
                 </a>
+                {% else %}
+                <a href="{{ url_for('auth.login') }}" class="list-group-item list-group-item-action bg-transparent text-white border-0 mt-2">
+                    <i class="bi bi-box-arrow-in-right me-2"></i> Iniciar Sesión
+                </a>
+                {% endif %}
             </div>
+
         </div>
-        {% endif %}
-        
-        <div id="page-content-wrapper">
-            
-            <nav class="navbar navbar-light bg-light border-bottom d-md-none mb-3">
-                <div class="container-fluid">
-                    <button class="btn btn-primary" id="menu-toggle">
+        <div id="page-content-wrapper" class="w-100">
+            <nav class="navbar navbar-light bg-light border-bottom px-3">
+                <div class="container-fluid p-0">
+                    <button class="btn btn-primary d-md-none" id="menu-toggle">
                         <i class="bi bi-list"></i> Menú
                     </button>
-                    <span class="navbar-brand ms-2 small fw-bold">SIMPARH</span>
+                    
                 </div>
             </nav>
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -139,11 +109,9 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    
     <script>
         const menuToggle = document.getElementById('menu-toggle');
         const wrapper = document.getElementById('wrapper');
-        
         if (menuToggle) {
             menuToggle.addEventListener('click', function(e) {
                 e.preventDefault();

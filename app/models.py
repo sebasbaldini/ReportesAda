@@ -1,3 +1,4 @@
+# app/models.py
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash
 from geoalchemy2 import Geometry
@@ -23,27 +24,21 @@ def load_user(user_id):
 
 # --- MODELOS DE BASE DE DATOS (ESQUEMA CUENCAS) ---
 
-# app/models.py
-
 class EstacionSimparh(db.Model):
     __tablename__ = 'estaciones_simparh'
     __table_args__ = {"schema": "cuencas"}
 
-    id = db.Column(db.Integer, primary_key=True)
-    id_proyecto = db.Column(db.String(50))
+    id = db.Column(db.String, primary_key=True) # ID STRING
+    id_proyecto = db.Column(db.String(50))      # ID PROYECTO STRING
+    # ... resto de columnas ...
     proyecto = db.Column(db.String(100))
     ubicacion = db.Column(db.String(150))
-    
-    # Acordate que agregamos pdo y dejamos partido
     pdo = db.Column(db.String(100)) 
     partido = db.Column(db.String(100))
-    
     nomcuenca = db.Column(db.String(100))
     latitude = db.Column(db.Float)
     longitude = db.Column(db.Float)
     geom = db.Column(Geometry('POINT', srid=4326))
-    
-    # Flags de sensores
     pluv = db.Column(db.Boolean)
     limn = db.Column(db.Boolean)
     viento = db.Column(db.Boolean)
@@ -52,24 +47,65 @@ class EstacionSimparh(db.Model):
     freat = db.Column(db.Boolean)
     calidad = db.Column(db.Boolean)
     estado_estacion = db.Column(db.String(50))
-
-    # --- BORRA O COMENTA ESTA LÍNEA SI EXISTE ---
-    # estado_estacion = db.Column(db.String(...))  <-- ESTO ES LO QUE DA ERROR
-    # --------------------------------------------
+    tipo = db.Column(db.String(50)) 
 
 class MedicionEMA(db.Model):
     __tablename__ = 'mediciones_ema'
     __table_args__ = {'schema': 'cuencas'}
-    
-    # Usamos la clave única que vi en tu foto como Primary Key
     key_unica_mediciones_ema = db.Column(db.String, primary_key=True)
-    
-    # Relación por id_proyecto (String)
     id_proyecto = db.Column(db.String, db.ForeignKey('cuencas.estaciones_simparh.id_proyecto'))
-    
     metrica = db.Column(db.String)
     valor = db.Column(db.Float)
-    fecha = db.Column(db.DateTime, index=True) # Tu foto muestra 'fecha'
-    
-    # Relación opcional
+    fecha = db.Column(db.DateTime, index=True)
     estacion = db.relationship('EstacionSimparh', backref='mediciones', foreign_keys=[id_proyecto])
+
+# --- MODELO AFOROS ---
+class RhAforosDw(db.Model):
+    __tablename__ = 'rh_aforos_dw'
+    __table_args__ = {'schema': 'cuencas'}
+
+    key_aforo = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer) 
+    
+    # CODIGO es String para coincidir con estaciones_simparh.id
+    codigo = db.Column(db.String, db.ForeignKey('cuencas.estaciones_simparh.id'))
+    
+    fecha_hora = db.Column(db.DateTime)
+    aforador = db.Column(db.String)
+    instrumento = db.Column(db.String)
+    molinete = db.Column(db.String)
+    helice = db.Column(db.String)
+    he = db.Column(db.Float)
+    hg = db.Column(db.Float)
+    k_hp = db.Column(db.Float)
+    k_hg_h = db.Column(db.Float)
+    tirante_max = db.Column(db.Float)
+    area_total = db.Column(db.Float)
+    area_con_q = db.Column(db.Float)
+    vel_total = db.Column(db.Float)
+    vel_con_q = db.Column(db.Float)
+    q_ppal = db.Column(db.Float)
+    q_total = db.Column(db.Float)
+    revisado = db.Column(db.Boolean)
+    obs = db.Column(db.String)
+    estacion_rel = db.relationship('EstacionSimparh', backref='aforos', foreign_keys=[codigo])
+
+# --- AGREGAR ESTO AL FINAL DE models.py ---
+
+class RhEscalasDw(db.Model):
+    __tablename__ = 'rh_escalas_dw'
+    __table_args__ = {'schema': 'cuencas'}
+
+    # Definiste key_escala como text, asumimos que es la Primary Key
+    key_escala = db.Column(db.String, primary_key=True) 
+    
+    # Relación con la tabla de estaciones
+    codigo = db.Column(db.String, db.ForeignKey('cuencas.estaciones_simparh.id'))
+    
+    fecha = db.Column(db.Date)  # O db.DateTime si tiene hora
+    altura = db.Column(db.Float)
+    cota = db.Column(db.Float)
+    obs = db.Column(db.String)
+
+    # Relación para acceder a los datos de la estación desde el objeto escala
+    estacion_rel = db.relationship('EstacionSimparh', backref='escalas', foreign_keys=[codigo])

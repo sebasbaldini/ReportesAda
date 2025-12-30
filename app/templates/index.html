@@ -2,13 +2,50 @@
 
 {% block title %}Mapa Interactivo - SIMPARH{% endblock %}
 
+{% block map_filters %}
+<div class="mt-2 border-top border-secondary pt-2">
+    <h6 class="text-white small fw-bold mb-2 text-uppercase" style="font-size: 0.75rem;">
+        <i class="bi bi-funnel"></i> Filtros
+    </h6>
+
+    <div class="mb-2">
+        <label for="filter-tipo" class="text-white-50 small mb-0" style="font-size: 0.7rem;">Tipo</label>
+        <select id="filter-tipo" class="form-select form-select-sm py-0" style="font-size: 0.8rem;">
+            <option value="EMA" selected>Solo EMAs</option>
+            <option value="MANUAL">Solo Aforos/Escalas</option>
+            <option value="todas">Ver Todas</option>
+        </select>
+    </div>
+
+    <div class="mb-2">
+        <label for="filter-cuenca" class="text-white-50 small mb-0" style="font-size: 0.7rem;">Cuenca</label>
+        <select id="filter-cuenca" class="form-select form-select-sm py-0" style="font-size: 0.8rem;">
+            <option value="todas">Todas</option>
+        </select>
+    </div>
+
+    <div class="mb-2">
+        <label for="filter-partido" class="text-white-50 small mb-0" style="font-size: 0.7rem;">Partido</label>
+        <select id="filter-partido" class="form-select form-select-sm py-0" style="font-size: 0.8rem;">
+            <option value="todas">Todos</option>
+        </select>
+    </div>
+</div>
+{% endblock %}
+
+
 {% block content %}
 <style>
-    /* Ajuste específico para móvil: descontar la altura de la navbar (aprox 60px) */
     @media (max-width: 768px) {
         .full-screen-map-container {
             height: calc(100vh - 60px) !important;
         }
+    }
+    .popup-custom .leaflet-popup-content-wrapper {
+        border-radius: 8px; padding: 0; overflow: hidden;
+    }
+    .popup-custom .leaflet-popup-content {
+        margin: 12px; width: 260px !important;
     }
 </style>
 
@@ -19,201 +56,145 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         
-        // DATOS
         const allEmas = {{ ema_locations | tojson }};
         const owmApiKey = {{ owm_api_key | tojson }};
         
-        // MAPA
+        // URLs
+        const urlDashboard = "{{ url_for('main.chart_dashboard_page') }}";
+        const urlReporteAforos = "{{ url_for('main.report_aforos_page') }}";
+        const urlReporteEscalas = "{{ url_for('main.report_escalas_page') }}";
+        
+        // Inicializar Mapa
         const map = L.map('map', { zoomControl: false }).setView([-34.6, -58.8], 9);
         L.control.zoom({ position: 'topright' }).addTo(map);
 
+        // Capas
         const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
             attribution: '© OpenStreetMap, © CARTO' 
         });
-        const rainLayer = L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { 
-            opacity: 0.6 
+        const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '© Esri'
         });
-        
-        map.addLayer(baseLayer);
-        L.control.layers({ "Mapa Base": baseLayer }, { "Radar Lluvia": rainLayer }, { position: 'topright' }).addTo(map);
+        const rainLayer = L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { maxZoom: 18 });
+        const cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { maxZoom: 18 });
 
-        const markersLayer = L.layerGroup().addTo(map);
-        
-        // ICONOS
-        const iconOnline = L.divIcon({ 
-            className: 'custom-div-icon', 
-            html: '<div style="background-color: #198754; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>',
-            iconSize: [12, 12]
+        baseLayer.addTo(map);
+        L.control.layers({ "Mapa Claro": baseLayer, "Satélite": satLayer }, { "Lluvia (OWM)": rainLayer, "Nubes (OWM)": cloudLayer }, { position: 'topright' }).addTo(map);
+
+        // Iconos
+        const createIcon = (color) => L.divIcon({
+            className: 'custom-div-icon',
+            html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.4);"></div>`,
+            iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10]
         });
+        const iconOnline = createIcon('#198754'); 
+        const iconOffline = createIcon('#dc3545'); 
+        const iconOther = createIcon('#6c757d');   
 
-        const iconOffline = L.divIcon({ 
-            className: 'custom-div-icon', 
-            html: '<div style="background-color: #dc3545; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>',
-            iconSize: [12, 12]
-        });
+        let markersLayer = L.layerGroup().addTo(map);
 
-        // REFERENCIAS DOM
-        const selPartido = document.getElementById('selectPartido');
-        const selCuenca = document.getElementById('selectCuenca');
-        const lblCount = document.getElementById('stationsCount');
-        const triggers = document.querySelectorAll('.filter-trigger');
-
-        // 1. LLENAR COMBOS
-        function populateFilters() {
-            const partidos = new Set();
-            const cuencas = new Set();
-
-            allEmas.forEach(ema => {
-                if(ema.partido) partidos.add(ema.partido);
-                if(ema.cuenca) cuencas.add(ema.cuenca);
-            });
-
-            // Agregar opción especial "Ver Todas"
-            const optAllP = document.createElement('option');
-            optAllP.value = 'all'; optAllP.textContent = '-- Ver Todas --';
-            optAllP.style.fontWeight = 'bold';
-            if(selPartido) selPartido.appendChild(optAllP);
-
-            const optAllC = document.createElement('option');
-            optAllC.value = 'all'; optAllC.textContent = '-- Ver Todas --';
-            optAllC.style.fontWeight = 'bold';
-            if(selCuenca) selCuenca.appendChild(optAllC);
-
-            Array.from(partidos).sort().forEach(p => {
-                const opt = document.createElement('option');
-                opt.value = p; opt.textContent = p;
-                if(selPartido) selPartido.appendChild(opt);
-            });
-
-            Array.from(cuencas).sort().forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c; opt.textContent = c;
-                if(selCuenca) selCuenca.appendChild(opt);
-            });
-        }
-
-        // 2. LÓGICA DE DIBUJADO Y FILTRADO
-        function updateMap() {
-            markersLayer.clearLayers(); 
-            
-            // Los valores pueden ser: "" (blanco), "all" (todas), o un nombre específico
-            const pVal = selPartido ? selPartido.value : '';
-            const cVal = selCuenca ? selCuenca.value : '';
-            
-            let count = 0;
-
-            allEmas.forEach(ema => {
-                let mostrar = false;
-
-                // --- CASO 1: FILTROS EN BLANCO (INICIO) ---
-                if (pVal === '' && cVal === '') {
-                    // Mostrar solo Principales
-                    if (ema.red === 'COMIREC' || ema.red === 'SIMATH') {
-                        mostrar = true;
-                    }
-                } 
-                // --- CASO 2: FILTRO ACTIVADO ("Todas" o Específico) ---
-                else {
-                    let cumplePartido = true;
-                    let cumpleCuenca = true;
-
-                    // Lógica Partido
-                    if (pVal !== '' && pVal !== 'all') {
-                        if (ema.partido !== pVal) cumplePartido = false;
-                    }
-                    
-                    // Lógica Cuenca
-                    if (cVal !== '' && cVal !== 'all') {
-                        if (ema.cuenca !== cVal) cumpleCuenca = false;
-                    }
-
-                    if (cumplePartido && cumpleCuenca) {
-                        mostrar = true;
-                    }
-                }
-
-                if (mostrar) {
-                    const icon = (ema.status === 'online') ? iconOnline : iconOffline;
-                    const marker = L.marker([ema.lat, ema.lon], { icon: icon });
-                    
-                    marker.bindTooltip(ema.nombre, { 
-                        permanent: false,
-                        direction: 'top',
-                        className: 'ema-label', 
-                        offset: [0, -10]
-                    });
-                    
-                    marker.on('click', () => openPopup(marker, ema));
-                    markersLayer.addLayer(marker);
-                    count++;
-                }
-            });
-
-            if(lblCount) lblCount.textContent = `Viendo ${count} estaciones`;
-        }
-
+        // Popup Logic
         function openPopup(marker, ema) {
-            // 1. Generamos la URL base usando Jinja (Flask lo procesa antes)
-            const baseUrl = "{{ url_for('main.chart_dashboard_page') }}";
-        
-        // 2. Le pegamos el ID de la estación seleccionada
-            const targetUrl = `${baseUrl}?ema_id=${ema.id}`;
-
-        // 3. Usamos esa URL en el botón del popup
             let popupContent = `
-                <div style="min-width: 200px;">
-                    <h6 class="mb-1">${ema.nombre}</h6>
-                    <small class="text-muted d-block mb-2">${ema.id}</small>
-                    <hr class="my-2">
-                    <div id="popup-sensors-list">
-                        <div class="text-center text-muted small">
-                            <span class="spinner-border spinner-border-sm"></span> Cargando sensores...
-                        </div>
-                    </div>
-                    <hr class="my-2">
-                    <div class="d-grid">
-                        <a href="${targetUrl}" class="btn btn-sm btn-primary w-100 text-white">
-                            <i class="bi bi-speedometer2"></i> Ver Dashboard
-                        </a>
-                    </div>
-                </div>
+                <div style="min-width: 220px;">
+                    <h6 class="mb-1 fw-bold text-dark">${ema.nombre}</h6>
+                    <small class="text-muted d-block mb-3 border-bottom pb-2">${ema.descripcion}</small>
             `;
-            
-            const popup = L.popup().setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
 
-            fetch(`/api/map-status/${encodeURIComponent(ema.id)}`)
-                .then(res => res.json())
-                .then(sensores => {
-                    let htmlList = '<ul class="list-unstyled mb-0 small">';
-                    if (sensores.length === 0) {
-                        htmlList += '<li class="text-muted text-center">Sin sensores configurados.</li>';
-                    } else {
-                        sensores.forEach(s => {
-                            const colorClass = s.estado === 'online' ? 'text-success' : 'text-danger';
-                            const iconClass = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
-                            htmlList += `
-                                <li class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="${colorClass}">
-                                        <i class="bi ${iconClass}"></i> ${s.nombre}
-                                    </span>
-                                    <span class="fw-bold">${s.valor}</span>
-                                </li>
-                            `;
+            if (ema.is_ema) {
+                const targetUrl = `${urlDashboard}?ema_id=${encodeURIComponent(ema.id)}`;
+                popupContent += `
+                    <div class="d-flex align-items-center mb-2">
+                        <span class="badge bg-success me-2">EMA</span><small class="text-muted">Automática</small>
+                    </div>
+                    <div id="popup-sensors-list" class="mb-3 bg-light p-2 rounded">
+                        <div class="text-center text-muted small"><span class="spinner-border spinner-border-sm"></span> Cargando...</div>
+                    </div>
+                    <div class="d-grid"><a href="${targetUrl}" class="btn btn-sm btn-primary"><i class="bi bi-speedometer2"></i> Dashboard</a></div>
+                `;
+                fetch(`/api/map-status/${encodeURIComponent(ema.id)}`)
+                    .then(res => res.json())
+                    .then(sensores => {
+                        let htmlList = '<ul class="list-unstyled mb-0 small">';
+                        if (sensores.length === 0) htmlList += '<li class="text-muted text-center">Sin sensores.</li>';
+                        else sensores.forEach(s => {
+                            const color = s.estado === 'online' ? 'text-success' : 'text-danger';
+                            const icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+                            htmlList += `<li class="d-flex justify-content-between mb-1 border-bottom border-light pb-1"><span class="${color}"><i class="bi ${icon}"></i> ${s.nombre}</span><span class="fw-bold text-dark">${s.valor}</span></li>`;
                         });
-                    }
-                    htmlList += '</ul>';
-                    const container = document.getElementById('popup-sensors-list');
-                    if(container) container.innerHTML = htmlList;
-                })
-                .catch(err => {
-                    const container = document.getElementById('popup-sensors-list');
-                    if(container) container.innerHTML = '<p class="text-danger small text-center">Error cargando datos.</p>';
+                        htmlList += '</ul>';
+                        const el = document.getElementById('popup-sensors-list');
+                        if(el) el.innerHTML = htmlList;
+                    }).catch(()=>{});
+            } else {
+                let hasData = false;
+                if (ema.last_aforo) {
+                    hasData = true;
+                    popupContent += `
+                        <div class="card border-0 bg-primary bg-opacity-10 mb-2 p-2">
+                            <div class="d-flex align-items-center mb-1"><i class="bi bi-water text-primary me-2"></i><small class="fw-bold text-primary">Aforos (${ema.last_aforo})</small></div>
+                            <a href="${urlReporteAforos}?ema_id=${ema.db_id}" class="btn btn-primary btn-sm w-100 py-0 small">Descargar</a>
+                        </div>`;
+                }
+                if (ema.last_escala) {
+                    hasData = true;
+                    popupContent += `
+                        <div class="card border-0 bg-info bg-opacity-10 mb-2 p-2">
+                            <div class="d-flex align-items-center mb-1"><i class="bi bi-ruler text-info me-2"></i><small class="fw-bold text-info">Escalas (${ema.last_escala})</small></div>
+                            <a href="${urlReporteEscalas}?ema_id=${ema.db_id}" class="btn btn-info btn-sm w-100 py-0 small text-white">Descargar</a>
+                        </div>`;
+                }
+                if (!hasData) popupContent += `<div class="alert alert-secondary small text-center p-2 mb-0">Sin datos recientes</div>`;
+            }
+            popupContent += `</div>`;
+            L.popup({ className: 'popup-custom' }).setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
+        }
+
+        // Render Map
+        function updateMap() {
+            markersLayer.clearLayers();
+            const selTipo = document.getElementById('filter-tipo').value;
+            const selCuenca = document.getElementById('filter-cuenca').value;
+            const selPartido = document.getElementById('filter-partido').value;
+
+            allEmas.forEach(ema => {
+                if (selTipo === 'EMA' && !ema.is_ema) return;
+                if (selTipo === 'MANUAL' && ema.is_ema) return;
+                if (selCuenca !== 'todas' && ema.cuenca !== selCuenca) return;
+                if (selPartido !== 'todas' && ema.partido !== selPartido) return;
+
+                let icon = iconOther; 
+                if (ema.is_ema) icon = (ema.status === 'online') ? iconOnline : iconOffline;
+
+                const marker = L.marker([ema.lat, ema.lon], { icon: icon });
+                marker.on('click', () => { openPopup(marker, ema); });
+                markersLayer.addLayer(marker);
+            });
+        }
+
+        // Populate Filters
+        function populateFilters() {
+            const cuencas = new Set(), partidos = new Set();
+            allEmas.forEach(e => {
+                if(e.cuenca) cuencas.add(e.cuenca);
+                if(e.partido) partidos.add(e.partido);
+            });
+            const fill = (id, set) => {
+                const el = document.getElementById(id);
+                [...set].sort().forEach(val => {
+                    const opt = document.createElement('option');
+                    opt.value = val; opt.textContent = val;
+                    el.appendChild(opt);
                 });
+                el.addEventListener('change', updateMap);
+            };
+            fill('filter-cuenca', cuencas);
+            fill('filter-partido', partidos);
+            document.getElementById('filter-tipo').addEventListener('change', updateMap);
         }
 
         populateFilters();
         updateMap();
-        triggers.forEach(t => t.addEventListener('change', updateMap));
     });
 </script>
 {% endblock %}

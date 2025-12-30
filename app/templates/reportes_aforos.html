@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Reporte de Aforos{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm border-0">
+<div class="card-body p-4 p-md-5">
+    
+    <div class="d-flex align-items-center mb-4">
+        <div class="bg-primary bg-opacity-10 p-3 rounded-circle me-3 text-primary">
+            <i class="bi bi-water fs-3"></i>
+        </div>
+        <div>
+            <h1 class="h3 mb-0">Reporte de Aforos</h1>
+            <p class="text-muted mb-0">Descarga de mediciones puntuales de caudal.</p>
+        </div>
+    </div>
+
+    <form action="{{ url_for('main.download_aforo_report') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token else '' }}"/>
+
+        <div class="row g-3">
+            <div class="col-12">
+                <label for="ema_select" class="form-label fw-bold">1. Seleccione la Estación:</label>
+                <select id="ema_select" name="ema_id" class="form-select form-select-lg" required>
+                    <option value="" disabled selected>-- Seleccione una Estación --</option>
+                    {% for id_st, display_text in emas_list %}
+                        <option value="{{ id_st }}">{{ display_text }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-12">
+                <div class="alert alert-info py-2">
+                    <i class="bi bi-info-circle"></i> Deje las fechas en blanco para descargar <strong>todo el historial</strong> disponible.
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <label for="fecha_inicio" class="form-label fw-bold">2. Fecha Inicio (Opcional):</label>
+                <input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control">
+            </div>
+            <div class="col-md-6">
+                <label for="fecha_fin" class="form-label fw-bold">3. Fecha Fin (Opcional):</label>
+                <input type="date" id="fecha_fin" name="fecha_fin" class="form-control">
+            </div>
+
+            <div class="col-12 mt-4">
+                <button type="submit" class="btn btn-primary btn-lg w-100">
+                    <i class="bi bi-download"></i> Descargar Excel Aforos
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Leer los parámetros de la URL (ej: ?ema_id=123)
+        const params = new URLSearchParams(window.location.search);
+        const targetId = params.get('ema_id');
+        
+        // 2. Buscar el desplegable
+        const select = document.getElementById('ema_select');
+        
+        // 3. Si hay ID en la URL y el desplegable existe...
+        if (targetId && select) {
+            // Intentar asignar el valor
+            select.value = targetId;
+            
+            // Verificar si se seleccionó correctamente (si el ID existe en la lista)
+            if (select.value === targetId) {
+                // Efecto visual: Borde azul y fondo suave para resaltar que ya se eligió
+                select.style.borderColor = "#0d6efd";
+                select.style.boxShadow = "0 0 0 0.25rem rgba(13, 110, 253, 0.25)";
+                select.style.backgroundColor = "#f8f9fa";
+                
+                // Opcional: Hacer scroll suave hacia el formulario
+                select.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+    });
+</script>
+{% endblock %}
