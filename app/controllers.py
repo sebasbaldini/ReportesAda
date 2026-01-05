@@ -15,7 +15,6 @@ def index():
 @main_bp.route('/reportes')
 @login_required
 def report_page():
-    # Lista completa de estaciones para EMAS
     emas = services.get_unified_ema_list_service()
     return render_template('reportes.html', emas_list=emas)
 
@@ -36,7 +35,6 @@ def download_report():
 @main_bp.route('/reportes/aforos')
 @login_required
 def report_aforos_page():
-    # Lista filtrada SOLO estaciones con datos de Aforos
     aforos = services.get_aforos_active_list_service()
     return render_template('reportes_aforos.html', emas_list=aforos)
 
@@ -44,7 +42,6 @@ def report_aforos_page():
 @login_required
 def download_aforo_report():
     try:
-        # Servicio específico de Aforos
         data, filename = services.generate_aforo_report_service(request.form)
         response = make_response(data)
         response.headers['Content-Disposition'] = f'attachment; filename={filename}'
@@ -54,36 +51,29 @@ def download_aforo_report():
         flash(f"Error Aforos: {str(e)}", 'danger')
         return redirect(url_for('main.report_aforos_page'))
 
-# --- REPORTES ESCALAS (NUEVO) ---
+# --- REPORTES ESCALAS ---
 @main_bp.route('/reportes/escalas')
 @login_required
 def report_escalas_page():
-    # Usamos un servicio para obtener estaciones que tengan datos de escalas
-    # NOTA: Debes tener esta función en services.py o usar get_unified_ema_list_service()
     try:
         escalas_list = services.get_escalas_active_list_service()
     except AttributeError:
-        # Fallback por si aún no creaste la función específica, usa la general
+        # Fallback si el servicio no existe aún
         escalas_list = services.get_unified_ema_list_service()
         
-    # Usamos un template nuevo (copia de aforos pero sin fechas)
     return render_template('reportes_escalas.html', emas_list=escalas_list)
 
 @main_bp.route('/download-escala-report', methods=['POST'])
 @login_required
 def download_escala_report():
     try:
-        # Servicio específico que hace el SELECT sin filtrar por fecha
-        # NOTA: Debes agregar generate_escala_report_service en services.py
         data, filename = services.generate_escala_report_service(request.form)
-        
         response = make_response(data)
         response.headers['Content-Disposition'] = f'attachment; filename={filename}'
         response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         return response
     except Exception as e:
         flash(f"Error Escalas: {str(e)}", 'danger')
-        # Redirige a la página de escalas si falla
         return redirect(url_for('main.report_escalas_page'))
 
 # --- API y GRÁFICOS ---
@@ -107,8 +97,7 @@ def custom_chart_page():
 @main_bp.route('/get-sensors/<string:ema_id>')
 @login_required
 def get_sensors_for_ema(ema_id):
-    # Aquí es donde fallaba "Todas". El controller solo pasa el ID.
-    # El servicio (services.py) es quien debe detectar si ema_id == 'todas' y devolver todos los sensores.
+    # NOTA: La lógica para buscar la fecha MIN debe estar dentro de este servicio en services.py
     sensors = services.get_sensors_for_ema_service(None, ema_id)
     return jsonify(sensors)
 
@@ -117,6 +106,36 @@ def get_sensors_for_ema(ema_id):
 def get_dashboard_data(ema_id):
     data = services.get_dashboard_data_service(None, ema_id)
     return jsonify(data)
+
+@main_bp.route('/download-chart-excel')
+@login_required
+def download_chart_excel():
+    try:
+        ema_id = request.args.get('ema_id')
+        sensor_info_list = request.args.getlist('sensor_info')
+        fecha_inicio = request.args.get('fecha_inicio')
+        fecha_fin = request.args.get('fecha_fin')
+        
+        # Llama al servicio que contiene la lógica de Pandas y XlsxWriter
+        excel_io, filename = services.generate_chart_excel_service(
+            current_user, ema_id, sensor_info_list, fecha_inicio, fecha_fin
+        )
+        
+        if not excel_io:
+            flash("No hay datos para exportar en el rango seleccionado", "warning")
+            # CORREGIDO: custom_charts_page -> custom_chart_page
+            return redirect(url_for('main.custom_chart_page')) 
+
+        response = make_response(excel_io.getvalue())
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        return response
+
+    except Exception as e:
+        print(f"Error exportando Excel: {e}")
+        flash("Ocurrió un error al generar el Excel.", "danger")
+        # CORREGIDO: custom_charts_page -> custom_chart_page
+        return redirect(url_for('main.custom_chart_page'))
 
 @main_bp.route('/api/get-chart-data')
 @login_required

@@ -16,18 +16,16 @@
                 <select id="ema_select" name="ema_id" class="form-select form-select-lg" required 
                         data-sensors-url="{{ url_for('main.get_sensors_for_ema', ema_id='temp-id') }}">
                     <option value="" disabled selected>-- Seleccione una EMA --</option>
-        
                     {% for ema_id, display_text in emas_list %}
                         <option value="{{ ema_id }}">{{ display_text }}</option>
                     {% endfor %}
-
-                    </select>
+                </select>
             </div>
 
             <div class="col-12">
                 <label class="form-label fw-bold">2. Seleccione Sensor(es):</label>
                 <div id="sensor-container" class="vstack gap-2">
-                    <p id="sensor-placeholder" class="text-muted">Por favor, seleccione una EMA primero.</p>
+                    <p id="sensor-placeholder" class="text-muted fst-italic">Por favor, seleccione una EMA primero.</p>
                 </div>
                 <button type="button" id="add-sensor-btn" class="btn btn-outline-success btn-sm mt-2" style="display: none;">
                     <i class="bi bi-plus-circle"></i> Agregar otro sensor
@@ -55,9 +53,12 @@
                 </div>
             </div>
 
-            <div class="col-12 mt-4">
-                <button id="update-chart-btn" class="btn btn-primary btn-lg w-100">
+            <div class="col-12 mt-4 d-flex gap-2">
+                <button id="update-chart-btn" class="btn btn-primary btn-lg flex-grow-1">
                     <i class="bi bi-arrow-clockwise"></i> Actualizar Gráfico(s)
+                </button>
+                <button id="btn-download-excel" class="btn btn-success btn-lg" style="display: none;">
+                    <i class="bi bi-file-earmark-excel"></i> Descargar Excel
                 </button>
             </div>
         </div>
@@ -65,11 +66,14 @@
 </div>
 </div>
 
-<div id="chart-container" class="mt-4">
-    <div id="chart-message" class="alert alert-info" style="display: none;" role="alert">
-        Cargando datos...
-    </div>
+<div id="chart-message" class="alert alert-info mt-3" style="display: none;" role="alert">
+    Cargando datos...
 </div>
+
+<div id="chart-container" class="mt-4"></div>
+
+<div id="tables-container" class="mt-5"></div>
+
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
@@ -85,12 +89,15 @@
         const fechaInicio = document.getElementById('fecha_inicio');
         const fechaFin = document.getElementById('fecha_fin');
         const updateBtn = document.getElementById('update-chart-btn');
+        const btnExcel = document.getElementById('btn-download-excel'); 
         const chartMessage = document.getElementById('chart-message');
         const chartContainer = document.getElementById('chart-container');
+        const tablesContainer = document.getElementById('tables-container');
         
         const combineChartsCheckbox = document.getElementById('combine_charts');
         const combineChartsHelp = document.getElementById('combine_charts_help');
 
+        // --- LÓGICA DE VALIDACIÓN DEL CHECKBOX ---
         function validateCombineCheckbox() {
             const sensorSelects = sensorContainer.querySelectorAll('.sensor-select');
             let pluvioCount = 0;
@@ -98,9 +105,8 @@
             
             sensorSelects.forEach(select => {
                 const selectedOption = select.options[select.selectedIndex];
-                // Usamos el dataset.metric que es el nombre real de la tabla
                 if (selectedOption && selectedOption.dataset.metric) {
-                    const metric = selectedOption.dataset.metric; // Ej: 'Pluviometrica'
+                    const metric = selectedOption.dataset.metric; 
                     if (metric.includes('Pluvio')) {
                         pluvioCount++;
                     } else if (metric.includes('Limni') || metric.includes('Freat')) {
@@ -109,21 +115,23 @@
                 }
             });
 
-            // Lógica para habilitar: Debe haber al menos 1 de cada uno
             const isValid = (pluvioCount >= 1 && nivelCount >= 1);
 
             if (isValid) {
                 combineChartsCheckbox.disabled = false;
                 combineChartsHelp.textContent = "¡Combinación disponible! Se usará doble eje (mm y m).";
-                combineChartsHelp.style.color = 'green';
+                combineChartsHelp.classList.remove('text-muted');
+                combineChartsHelp.classList.add('text-success');
             } else {
                 combineChartsCheckbox.disabled = true;
                 combineChartsCheckbox.checked = false; 
                 combineChartsHelp.textContent = "(Seleccione 1 Lluvia y 1 Nivel para habilitar)";
-                combineChartsHelp.style.color = '#6c757d'; 
+                combineChartsHelp.classList.remove('text-success');
+                combineChartsHelp.classList.add('text-muted');
             }
         }
         
+        // --- AGREGAR FILA DE SENSOR ---
         function addSensorRow() {
             const row = document.createElement('div');
             row.className = 'input-group sensor-row mb-2'; 
@@ -131,6 +139,7 @@
             sensorSelect.name = 'sensor_info';
             sensorSelect.className = 'form-select sensor-select'; 
             sensorSelect.required = true;
+            
             const removeBtn = document.createElement('button');
             removeBtn.type = 'button';
             removeBtn.className = 'btn btn-outline-danger'; 
@@ -145,12 +154,13 @@
             currentSensorList.forEach(sensor => {
                 const option = document.createElement('option'); 
                 option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
-                option.dataset.metric = sensor.table_name; // CLAVE PARA LA VALIDACIÓN
+                option.dataset.metric = sensor.table_name; 
                 option.textContent = sensor.nombre;
                 sensorSelect.appendChild(option);
             });
+            
             if (sensorSelect.options.length > 1) {
-                 sensorSelect.value = sensorSelect.options[1].value;
+                 // sensorSelect.value = sensorSelect.options[1].value; 
             }
             
             sensorSelect.addEventListener('change', validateCombineCheckbox); 
@@ -162,10 +172,12 @@
             validateCombineCheckbox(); 
         }
 
+        // --- CARGAR SENSORES AL CAMBIAR EMA ---
         emaSelect.addEventListener('change', function() {
             const selectedEmaId = this.value.trim();
             sensorContainer.innerHTML = ''; 
             addSensorBtn.style.display = 'none'; 
+            btnExcel.style.display = 'none';
             currentSensorList = [];
             validateCombineCheckbox(); 
             
@@ -174,6 +186,7 @@
                 return;
             }
             const urlToFetch = emaSelect.dataset.sensorsUrl.replace('temp-id', encodeURIComponent(selectedEmaId));
+            
             fetch(urlToFetch) 
                 .then(response => response.json())
                 .then(sensores => {
@@ -193,6 +206,7 @@
             addSensorRow();
         });
 
+        // --- BOTÓN ACTUALIZAR GRÁFICO ---
         updateBtn.addEventListener('click', function() {
             const ema_id = emaSelect.value;
             const sensorSelects = document.querySelectorAll('.sensor-select');
@@ -205,21 +219,60 @@
             const sensor_info_list = [];
             sensorSelects.forEach(select => { if (select.value) sensor_info_list.push(select.value); });
 
+            // UI Reset
             chartMessage.style.display = 'block';
             chartMessage.className = 'alert alert-info';
-            chartMessage.innerHTML = 'Cargando...';
-            destroyCharts();
+            chartMessage.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Cargando datos...';
+            
+            // Limpiamos todo antes de pedir datos nuevos
+            destroyCharts(); 
+            tablesContainer.innerHTML = '';
+            btnExcel.style.display = 'none';
 
+            // Parámetros URL
             const params = new URLSearchParams({ 'ema_id': ema_id, 'fecha_inicio': fecha_inicio, 'fecha_fin': fecha_fin });
             sensor_info_list.forEach(si => params.append('sensor_info', si));
             if (combineChartsCheckbox.checked) params.append('combine', 'true');
             
+            // Fetch
             fetch("{{ url_for('main.get_chart_data') }}?" + params.toString())
                 .then(res => res.json())
                 .then(chartsData => { 
                     chartMessage.style.display = 'none'; 
+        
                     if (chartsData.error) throw new Error(chartsData.error);
+        
+                    // --- CORRECCIÓN: MANEJO DE SIN DATOS ---
+                    if (chartsData.length === 0) {
+                        // 1. Usamos tu función existente para limpiar charts
+                        destroyCharts();
+
+                        // 2. Limpieza Nuclear del contenedor por ID correcto
+                        // Usamos chartContainer que ya definimos arriba (document.getElementById('chart-container'))
+                        if (chartContainer) {
+                            chartContainer.innerHTML = ''; 
+                            
+                            // 3. Crear mensaje de error
+                            const mensajeDiv = document.createElement('div');
+                            mensajeDiv.className = 'alert alert-warning'; 
+                            mensajeDiv.textContent = "No hay datos en este rango.";
+                            chartContainer.appendChild(mensajeDiv);
+                        }
+                        return; // Detenemos la ejecución
+                    }
+                    // ------------------------
+
+                    // 1. DIBUJAR GRÁFICOS
                     drawCharts(chartsData); 
+                    
+                    // 2. DIBUJAR TABLAS
+                    drawTables(chartsData);
+
+                    // 3. ACTIVAR BOTÓN EXCEL
+                    btnExcel.style.display = 'block';
+                    btnExcel.onclick = () => {
+                        window.location.href = `/download-chart-excel?${params.toString()}`;
+                    };
                 })
                 .catch(error => {
                     chartMessage.style.display = 'block';
@@ -228,35 +281,104 @@
                 });
         });
 
+        // --- FUNCIÓN LIMPIAR GRÁFICOS Y CONTENEDOR ---
         function destroyCharts() {
+            // Destruir instancias de Chart.js
             if (chartInstances.length > 0) {
-                chartInstances.forEach(chart => chart.destroy());
+                chartInstances.forEach(chart => {
+                    if(chart) chart.destroy();
+                });
                 chartInstances = []; 
             }
-            chartContainer.querySelectorAll('.chart-wrapper').forEach(cw => cw.remove());
+            // Limpiar el HTML del contenedor por completo
+            chartContainer.innerHTML = ''; 
         }
 
+        // --- FUNCIÓN DIBUJAR GRÁFICOS ---
         function drawCharts(chartsData) { 
-            destroyCharts(); 
+            // destroyCharts(); // Ya lo llamamos antes, no es estrictamente necesario aquí pero mal no hace
+            
             chartsData.forEach((chartData, index) => {
                 const chartWrapper = document.createElement('div');
-                chartWrapper.className = 'chart-wrapper';
+                chartWrapper.className = 'chart-wrapper mb-5 p-3 border rounded shadow bg-white';
+                
+                // Contenedor interno para dar altura
+                const containerDiv = document.createElement('div');
+                containerDiv.style.position = 'relative';
+                containerDiv.style.height = '60vh';
+                containerDiv.style.minHeight = '500px'; 
+                containerDiv.style.width = '100%';
+
                 const canvas = document.createElement('canvas');
                 canvas.id = `myChart_${index}`;
-                chartWrapper.appendChild(canvas);
-                chartContainer.insertBefore(chartWrapper, chartMessage); 
+                
+                containerDiv.appendChild(canvas);
+                chartWrapper.appendChild(containerDiv);
+                
+                // --- CORRECCIÓN DEL ERROR insertBefore ---
+                // NO usar insertBefore porque chartMessage no es hijo de chartContainer.
+                // Usamos appendChild simple.
+                chartContainer.appendChild(chartWrapper); 
                 
                 const ctx = canvas.getContext('2d');
-                // IMPORTANTE: Chart.js usa 'type' en la raíz para el tipo base
                 const newChart = new Chart(ctx, {
                     type: chartData.chart_type, 
                     data: {
                         labels: chartData.labels,
                         datasets: chartData.datasets
                     },
-                    options: chartData.options // Usamos las opciones que vienen del backend (con doble eje)
+                    options: {
+                        ...chartData.options,
+                        maintainAspectRatio: false
+                    }
                 });
                 chartInstances.push(newChart);
+            });
+        }
+
+        // --- FUNCIÓN DIBUJAR TABLAS ---
+        function drawTables(chartsData) {
+            tablesContainer.innerHTML = '<h3 class="h4 border-bottom pb-2 mb-4">Tablas de Datos Detallados</h3>';
+            chartsData.forEach((item) => {
+                const tableCard = document.createElement('div');
+                tableCard.className = 'card mb-4 shadow-sm';
+                
+                const cardHeader = document.createElement('div');
+                cardHeader.className = 'card-header bg-light fw-bold';
+                cardHeader.textContent = item.options.plugins.title.text || 'Datos';
+                tableCard.appendChild(cardHeader);
+
+                const divResp = document.createElement('div');
+                divResp.className = 'table-responsive';
+                divResp.style.maxHeight = '400px';
+
+                const table = document.createElement('table');
+                table.className = 'table table-hover table-striped mb-0 table-sm';
+                
+                const thead = document.createElement('thead');
+                let header = '<tr><th class="sticky-top bg-light">Fecha</th>';
+                item.datasets.forEach(ds => header += `<th class="sticky-top bg-light">${ds.label}</th>`);
+                header += '</tr>';
+                thead.innerHTML = header;
+                table.appendChild(thead);
+
+                const tbody = document.createElement('tbody');
+                item.labels.forEach((lbl, i) => {
+                    const tr = document.createElement('tr');
+                    let row = `<td>${lbl}</td>`;
+                    item.datasets.forEach(ds => {
+                        let val = ds.data[i];
+                        if(typeof val === 'number') val = Number.isInteger(val) ? val : val.toFixed(2);
+                        row += `<td>${val ?? '-'}</td>`;
+                    });
+                    tr.innerHTML = row;
+                    tbody.appendChild(tr);
+                });
+                
+                table.appendChild(tbody);
+                divResp.appendChild(table);
+                tableCard.appendChild(divResp);
+                tablesContainer.appendChild(tableCard);
             });
         }
     });
