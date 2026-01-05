@@ -2,7 +2,7 @@
 import pandas as pd
 import io
 from datetime import datetime
-from sqlalchemy import func, or_, distinct, cast, String, text
+from sqlalchemy import func, or_, distinct, cast, String, text, and_
 from .extensions import db
 from .models import EstacionSimparh, MedicionEMA, RhAforosDw, RhEscalasDw
 
@@ -269,27 +269,68 @@ def get_dashboard_data_repo(id_proyecto_str):
     return data
 
 def get_map_popup_status_repo(id_proyecto_str):
+    # 1. Recuperamos la configuración de nombres (esto ya lo optimizamos antes, es rápido)
     sensores_config = get_sensors_for_station_repo(id_proyecto_str)
-    resultado = []
+    
+    # Mapa para traducir de "Nombre DB" (ej: Limnigrafica) a "Nombre Lindo" (ej: Limnímetro)
+    # Lo convertimos a dict para busqueda rapida: {'Limnigrafica': 'Limnímetro (Nivel)', ...}
+    mapa_nombres = {s['table_name']: s['nombre'] for s in sensores_config}
+    
     hoy_inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    for sensor in sensores_config:
-        metrica_real = sensor['table_name']; nombre_display = sensor['nombre']
-        estado = 'offline'; valor_str = "Sin datos"; fecha_str = "-"
-        try:
-            ultimo_dato = db.session.query(MedicionEMA).filter_by(id_proyecto=id_proyecto_str, metrica=metrica_real).order_by(MedicionEMA.fecha.desc()).first()
-            if ultimo_dato:
-                if ultimo_dato.fecha >= hoy_inicio: estado = 'online'
-                fecha_str = ultimo_dato.fecha.strftime('%Y-%m-%d'); val = ultimo_dato.valor
-                if 'Pluvio' in metrica_real: valor_str = f"{val} mm"
-                elif 'Limni' in metrica_real: valor_str = f"{val} m"
-                elif 'Temp' in metrica_real: valor_str = f"{val} °C"
-                elif 'Viento' in metrica_real or 'Anemo' in metrica_real: valor_str = f"{val} km/h"
-                elif 'Bateria' in metrica_real: valor_str = f"{val} V"
-                elif 'Presion' in metrica_real or 'Baro' in metrica_real: valor_str = f"{int(val)} hPa"
-                elif 'Humedad' in metrica_real: valor_str = f"{int(val)} %"
-                else: valor_str = str(val)
-                resultado.append({'nombre': nombre_display, 'valor': valor_str, 'fecha': fecha_str, 'estado': estado})
-        except: pass
+    resultado = []
+
+    try:
+        # 2. LA MAGIA: Traer el ÚLTIMO dato de TODOS los sensores en UNA sola consulta
+        # Paso A: Subconsulta para encontrar la fecha máxima por métrica para esta estación
+        stmt_max_fechas = db.session.query(
+            MedicionEMA.metrica,
+            func.max(MedicionEMA.fecha).label('max_fecha')
+        ).filter(MedicionEMA.id_proyecto == id_proyecto_str)\
+         .group_by(MedicionEMA.metrica).subquery()
+
+        # Paso B: Unir la tabla principal con la subconsulta para sacar el valor
+        query = db.session.query(MedicionEMA).join(
+            stmt_max_fechas,
+            and_(
+                MedicionEMA.metrica == stmt_max_fechas.c.metrica,
+                MedicionEMA.fecha == stmt_max_fechas.c.max_fecha
+            )
+        ).filter(MedicionEMA.id_proyecto == id_proyecto_str)
+        
+        datos_recientes = query.all()
+
+        # 3. Procesar los datos en memoria (Python es rápido para esto)
+        for dato in datos_recientes:
+            # Solo mostramos si es un sensor que tenemos configurado para mostrar
+            if dato.metrica in mapa_nombres:
+                nombre_display = mapa_nombres[dato.metrica]
+                estado = 'online' if dato.fecha >= hoy_inicio else 'offline'
+                fecha_str = dato.fecha.strftime('%Y-%m-%d %H:%M')
+                val = dato.valor
+                
+                # Formateo de unidades
+                valor_str = str(val)
+                m_real = dato.metrica
+                if 'Pluvio' in m_real: valor_str = f"{val} mm"
+                elif 'Limni' in m_real: valor_str = f"{val} m"
+                elif 'Temp' in m_real: valor_str = f"{val} °C"
+                elif 'Viento' in m_real or 'Anemo' in m_real: valor_str = f"{val} km/h"
+                elif 'Bateria' in m_real: valor_str = f"{val} V"
+                elif 'Presion' in m_real or 'Baro' in m_real: valor_str = f"{int(val)} hPa"
+                elif 'Humedad' in m_real: valor_str = f"{int(val)} %"
+
+                resultado.append({
+                    'nombre': nombre_display, 
+                    'valor': valor_str, 
+                    'fecha': fecha_str, 
+                    'estado': estado
+                })
+
+    except Exception as e:
+        print(f"Error en popup optimizado: {e}")
+
+    # Ordenamos un poco para que quede lindo (opcional)
+    resultado.sort(key=lambda x: x['nombre'])
     return resultado
 
 def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica, tipo_proceso='raw'):
