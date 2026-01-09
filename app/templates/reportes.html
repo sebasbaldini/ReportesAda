@@ -153,31 +153,16 @@
                     dateInfo.innerHTML = `<i class="bi bi-calendar-event"></i> Datos desde: <strong>${fechaTraida}</strong>`;
                     dateInfo.classList.remove('text-muted'); dateInfo.classList.add('text-primary');
 
-                     // === CORRECCIÓN AQUÍ ===
-                    // 2. Solo rellenamos el calendario si la fecha NO es "N/A"
-                    if (fechaTraida !== 'N/A') {
-                    fechaInicioInput.value = fechaTraida;
-                 } else {
-                    console.log("El sensor no tiene fecha histórica (es N/A), no tocamos el calendario.");
-                 }
-                // =======================
 
                 } else {
-                    // ... el resto del código (else) sigue igual
+                    
                     dateInfo.innerHTML = 'Sin fecha histórica.';
-            // ...
+           
             }
             });
             
             // Autoseleccionar el segundo si existe (el primero es "--Seleccione--")
-            if (sensorSelect.options.length > 1) {
-                 sensorSelect.value = sensorSelect.options[1].value;
-                 // Forzamos la actualización de opciones
-                 actualizarOpcionesDeProceso(sensorSelect.options[1]);
-                 sensorSelect.dispatchEvent(new Event('change'));
-            } else {
-                 actualizarOpcionesDeProceso(null);
-            }
+          
             
             inputGroup.appendChild(sensorSelect);
             inputGroup.appendChild(processSelect);
