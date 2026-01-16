@@ -131,10 +131,16 @@
             }
         }
         
-        // --- AGREGAR FILA DE SENSOR ---
+        // --- AGREGAR FILA DE SENSOR (MODIFICADO PARA MOSTRAR FECHA) ---
         function addSensorRow() {
-            const row = document.createElement('div');
-            row.className = 'input-group sensor-row mb-2'; 
+            // 1. Creamos un contenedor "wrapper" para agrupar el input y el texto de fecha
+            const wrapper = document.createElement('div');
+            wrapper.className = 'mb-2 border-bottom pb-2'; // Un poco de espacio
+
+            // 2. El Input Group original (Select + Botón Borrar)
+            const inputGroup = document.createElement('div');
+            inputGroup.className = 'input-group'; 
+            
             const sensorSelect = document.createElement('select');
             sensorSelect.name = 'sensor_info';
             sensorSelect.className = 'form-select sensor-select'; 
@@ -145,29 +151,54 @@
             removeBtn.className = 'btn btn-outline-danger'; 
             removeBtn.innerHTML = '<i class="bi bi-trash"></i>';
             
+            // 3. Elemento para mostrar la fecha (Oculto al principio)
+            const dateLabel = document.createElement('div');
+            dateLabel.className = 'form-text text-primary small ms-1 mt-1 fw-bold';
+            dateLabel.style.display = 'none'; // Se oculta hasta que elijan algo
+
+            // Lógica del botón borrar
             removeBtn.addEventListener('click', function() { 
-                row.remove(); 
+                wrapper.remove(); // Borramos todo el wrapper
                 validateCombineCheckbox(); 
             });
             
+            // Llenar el Select
             sensorSelect.innerHTML = '<option value="" disabled selected>-- Seleccione un sensor --</option>';
             currentSensorList.forEach(sensor => {
                 const option = document.createElement('option'); 
                 option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
                 option.dataset.metric = sensor.table_name; 
+                
+                // === AQUI GUARDAMOS LA FECHA EN LA OPCION ===
+                option.dataset.inicio = sensor.fecha_inicio || 'N/A';
+                // ============================================
+
                 option.textContent = sensor.nombre;
                 sensorSelect.appendChild(option);
             });
             
-            if (sensorSelect.options.length > 1) {
-                 // sensorSelect.value = sensorSelect.options[1].value; 
-            }
-            
-            sensorSelect.addEventListener('change', validateCombineCheckbox); 
+            // Evento al cambiar selección: Actualizar el texto de la fecha
+            sensorSelect.addEventListener('change', function() {
+                validateCombineCheckbox();
+                
+                // Buscar la opción seleccionada y leer su data-inicio
+                const selectedOption = this.options[this.selectedIndex];
+                if (selectedOption && selectedOption.dataset.inicio && selectedOption.dataset.inicio !== 'N/A') {
+                    dateLabel.innerHTML = `<i class="bi bi-calendar-check"></i> Datos disponibles desde: ${selectedOption.dataset.inicio}`;
+                    dateLabel.style.display = 'block';
+                } else {
+                    dateLabel.style.display = 'none';
+                }
+            });
 
-            row.appendChild(sensorSelect);
-            row.appendChild(removeBtn);
-            sensorContainer.appendChild(row);
+            // Armar el HTML
+            inputGroup.appendChild(sensorSelect);
+            inputGroup.appendChild(removeBtn);
+            
+            wrapper.appendChild(inputGroup);
+            wrapper.appendChild(dateLabel); // Agregamos la etiqueta abajo
+            
+            sensorContainer.appendChild(wrapper);
             
             validateCombineCheckbox(); 
         }
@@ -242,25 +273,17 @@
         
                     if (chartsData.error) throw new Error(chartsData.error);
         
-                    // --- CORRECCIÓN: MANEJO DE SIN DATOS ---
                     if (chartsData.length === 0) {
-                        // 1. Usamos tu función existente para limpiar charts
                         destroyCharts();
-
-                        // 2. Limpieza Nuclear del contenedor por ID correcto
-                        // Usamos chartContainer que ya definimos arriba (document.getElementById('chart-container'))
                         if (chartContainer) {
                             chartContainer.innerHTML = ''; 
-                            
-                            // 3. Crear mensaje de error
                             const mensajeDiv = document.createElement('div');
                             mensajeDiv.className = 'alert alert-warning'; 
                             mensajeDiv.textContent = "No hay datos en este rango.";
                             chartContainer.appendChild(mensajeDiv);
                         }
-                        return; // Detenemos la ejecución
+                        return; 
                     }
-                    // ------------------------
 
                     // 1. DIBUJAR GRÁFICOS
                     drawCharts(chartsData); 
@@ -296,8 +319,6 @@
 
         // --- FUNCIÓN DIBUJAR GRÁFICOS ---
         function drawCharts(chartsData) { 
-            // destroyCharts(); // Ya lo llamamos antes, no es estrictamente necesario aquí pero mal no hace
-            
             chartsData.forEach((chartData, index) => {
                 const chartWrapper = document.createElement('div');
                 chartWrapper.className = 'chart-wrapper mb-5 p-3 border rounded shadow bg-white';
@@ -315,9 +336,6 @@
                 containerDiv.appendChild(canvas);
                 chartWrapper.appendChild(containerDiv);
                 
-                // --- CORRECCIÓN DEL ERROR insertBefore ---
-                // NO usar insertBefore porque chartMessage no es hijo de chartContainer.
-                // Usamos appendChild simple.
                 chartContainer.appendChild(chartWrapper); 
                 
                 const ctx = canvas.getContext('2d');
