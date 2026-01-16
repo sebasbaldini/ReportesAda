@@ -95,7 +95,7 @@
         const iconOnline = createIcon('#198754'); // Verde (EMA Online)
         const iconOffline = createIcon('#dc3545'); // Rojo (EMA Offline)
         
-        // --- NUEVOS COLORES ---
+        // --- COLORES ---
         const iconEscala = createIcon('#000000'); // Negro (Escalas)
         const iconAforo = createIcon('#0dcaf0');  // Celeste (Aforos)
         const iconOther = createIcon('#6c757d');  // Gris (Por defecto/Sin datos)  
@@ -112,6 +112,8 @@
 
             if (ema.is_ema) {
                 const targetUrl = `${urlDashboard}?ema_id=${encodeURIComponent(ema.id)}`;
+                
+                // === AQUI ESTA EL CAMBIO: text-white en el botón ===
                 popupContent += `
                     <div class="d-flex align-items-center mb-2">
                         <span class="badge bg-success me-2">EMA</span><small class="text-muted">Automática</small>
@@ -119,22 +121,47 @@
                     <div id="popup-sensors-list" class="mb-3 bg-light p-2 rounded">
                         <div class="text-center text-muted small"><span class="spinner-border spinner-border-sm"></span> Cargando...</div>
                     </div>
-                    <div class="d-grid"><a href="${targetUrl}" class="btn btn-sm btn-primary"><i class="bi bi-speedometer2"></i> Dashboard</a></div>
+                    <div class="d-grid"><a href="${targetUrl}" class="btn btn-sm btn-primary text-white"><i class="bi bi-speedometer2"></i> Dashboard</a></div>
                 `;
+                // ===================================================
+                
+                // --- FETCH PARA TRAER DATOS Y FECHAS ---
                 fetch(`/api/map-status/${encodeURIComponent(ema.id)}`)
                     .then(res => res.json())
                     .then(sensores => {
                         let htmlList = '<ul class="list-unstyled mb-0 small">';
-                        if (sensores.length === 0) htmlList += '<li class="text-muted text-center">Sin sensores.</li>';
-                        else sensores.forEach(s => {
-                            const color = s.estado === 'online' ? 'text-success' : 'text-danger';
-                            const icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
-                            htmlList += `<li class="d-flex justify-content-between mb-1 border-bottom border-light pb-1"><span class="${color}"><i class="bi ${icon}"></i> ${s.nombre}</span><span class="fw-bold text-dark">${s.valor}</span></li>`;
-                        });
+                        
+                        if (sensores.length === 0) {
+                            htmlList += '<li class="text-muted text-center">Sin sensores.</li>';
+                        } else {
+                            sensores.forEach(s => {
+                                const color = s.estado === 'online' ? 'text-success' : 'text-danger';
+                                const icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+                                
+                                // Texto de fecha
+                                const fechaTexto = s.fecha ? `Última fecha: ${s.fecha}` : '';
+
+                                htmlList += `
+                                <li class="d-flex justify-content-between align-items-center mb-2 border-bottom border-light pb-1">
+                                    <div class="d-flex flex-column">
+                                        <span class="${color}">
+                                            <i class="bi ${icon}"></i> ${s.nombre}
+                                        </span>
+                                        <small class="text-muted" style="font-size: 0.75em; padding-left: 18px;">
+                                            ${fechaTexto}
+                                        </small>
+                                    </div>
+                                    <span class="fw-bold text-dark">${s.valor}</span>
+                                </li>`;
+                            });
+                        }
+                        
                         htmlList += '</ul>';
                         const el = document.getElementById('popup-sensors-list');
                         if(el) el.innerHTML = htmlList;
                     }).catch(()=>{});
+                // ---------------------------------------
+
             } else {
                 let hasData = false;
                 if (ema.last_aforo) {
@@ -160,33 +187,30 @@
         }
 
         // Render Map
-       function updateMap() {
+        function updateMap() {
             markersLayer.clearLayers();
             const selTipo = document.getElementById('filter-tipo').value;
             const selCuenca = document.getElementById('filter-cuenca').value;
             const selPartido = document.getElementById('filter-partido').value;
 
             allEmas.forEach(ema => {
-                // Filtros (Sin cambios)
+                // Filtros
                 if (selTipo === 'EMA' && !ema.is_ema) return;
                 if (selTipo === 'MANUAL' && ema.is_ema) return;
                 if (selCuenca !== 'todas' && ema.cuenca !== selCuenca) return;
                 if (selPartido !== 'todas' && ema.partido !== selPartido) return;
 
-                // --- LÓGICA DE COLORES ACTUALIZADA ---
-                let icon = iconOther; // Por defecto gris
+                // Colores
+                let icon = iconOther; 
 
                 if (ema.is_ema) {
-                    // Si es EMA: Verde o Rojo según estado
                     icon = (ema.status === 'online') ? iconOnline : iconOffline;
                 } else {
-                    // Si NO es EMA (Manuales):
                     if (ema.last_escala) {
-                        icon = iconEscala; // Negro si tiene escala
+                        icon = iconEscala; 
                     } else if (ema.last_aforo) {
-                        icon = iconAforo;  // Celeste si tiene aforo
+                        icon = iconAforo;  
                     }
-                    // Si no tiene nada, se queda en gris (iconOther)
                 }
 
                 const marker = L.marker([ema.lat, ema.lon], { icon: icon });

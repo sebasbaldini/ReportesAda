@@ -179,48 +179,54 @@ def get_sensors_for_station_repo(id_proyecto_str):
         seen = set()
         for _, sid, nombre, metrica in mapa_flags:
             if metrica not in seen:
-                sensors.append({'id': sid, 'nombre': nombre, 'table_name': metrica, 'search_text': nombre.lower(), 'fecha_inicio': 'N/A'})
+                sensors.append({'id': sid, 'nombre': nombre, 'table_name': metrica, 'search_text': nombre.lower(), 'fecha_inicio': 'N/A', 'ultimo_dato': 'N/A'})
                 seen.add(metrica)
         for sid, nom, met in extras:
-            sensors.append({'id': sid, 'nombre': nom, 'table_name': met, 'search_text': nom.lower(), 'fecha_inicio': 'N/A'})
+            sensors.append({'id': sid, 'nombre': nom, 'table_name': met, 'search_text': nom.lower(), 'fecha_inicio': 'N/A', 'ultimo_dato': 'N/A'})
         return sensors
 
     # --- CASO 2: UNA SOLA ESTACIÓN (OPTIMIZADO) ---
     try:
-        # OPTIMIZACIÓN: Traemos TODAS las fechas de inicio de una sola vez
-        # SQL equivalente: SELECT metrica, MIN(fecha) FROM MedicionEMA WHERE id_proyecto = 'X' GROUP BY metrica
+        # OPTIMIZACIÓN: Traemos fecha INICIO y fecha FIN
+        # SQL equivalente: SELECT metrica, MIN(fecha), MAX(fecha) FROM MedicionEMA ...
         q_dates = db.session.query(
             MedicionEMA.metrica, 
-            func.min(MedicionEMA.fecha)
+            func.min(MedicionEMA.fecha),
+            func.max(MedicionEMA.fecha)  # <--- NUEVO: Obtenemos el último dato
         ).filter(MedicionEMA.id_proyecto == id_proyecto_str)\
          .group_by(MedicionEMA.metrica).all()
 
-        # Convertimos la lista de tuplas en un Diccionario para búsqueda instantánea
-        # Ejemplo: {'Pluviometrica': datetime(2023,1,1), 'Bateria': datetime(2023,1,5)}
+        # Diccionarios para búsqueda rápida
         fechas_map = {}
-        for row in q_dates:
-            if row[1]: # Si hay fecha
-                fechas_map[row[0]] = row[1].strftime('%Y-%m-%d')
+        ultimos_datos_map = {}
 
-        # Obtenemos las métricas activas directamente de las keys del mapa (más rápido que hacer otro distinct)
+        for row in q_dates:
+            # row[0]=metrica, row[1]=min, row[2]=max
+            if row[1]: 
+                fechas_map[row[0]] = row[1].strftime('%Y-%m-%d')
+            if row[2]:
+                # Guardamos la fecha del ultimo dato formateada
+                ultimos_datos_map[row[0]] = row[2].strftime('%d/%m/%Y %H:%M')
+
+        # Obtenemos las métricas activas
         metricas_activas = list(fechas_map.keys())
         
         seen_metrics = set()
         
         # Procesamos mapa principal
         for _, sid, nombre, metrica_db in mapa_flags:
-            # Verificamos si la metrica está en nuestro mapa de fechas (significa que existe)
             if any(metrica_db in m for m in metricas_activas):
                 if metrica_db not in seen_metrics:
-                    # BÚSQUEDA INSTANTÁNEA EN DICCIONARIO (O(1)) en vez de Query DB
                     f_inicio = fechas_map.get(metrica_db, 'N/A')
+                    f_fin = ultimos_datos_map.get(metrica_db, 'Sin datos') # <--- NUEVO
                     
                     sensors.append({
                         'id': sid, 
                         'nombre': nombre, 
                         'table_name': metrica_db, 
                         'search_text': nombre.lower(), 
-                        'fecha_inicio': f_inicio 
+                        'fecha_inicio': f_inicio,
+                        'ultimo_dato': f_fin  # <--- CAMPO NUEVO PARA EL FRONT
                     })
                     seen_metrics.add(metrica_db)
 
@@ -228,13 +234,15 @@ def get_sensors_for_station_repo(id_proyecto_str):
         for sid, nom, met in extras:
             if any(met in m for m in metricas_activas):
                 f_inicio = fechas_map.get(met, 'N/A')
+                f_fin = ultimos_datos_map.get(met, 'Sin datos') # <--- NUEVO
                 
                 sensors.append({
                     'id': sid, 
                     'nombre': nom, 
                     'table_name': met, 
                     'search_text': nom.lower(), 
-                    'fecha_inicio': f_inicio 
+                    'fecha_inicio': f_inicio,
+                    'ultimo_dato': f_fin  # <--- CAMPO NUEVO PARA EL FRONT
                 })
 
     except Exception as e:
@@ -425,18 +433,12 @@ def get_chart_data_repo(ema_id, sensor_info_list, f_inicio, f_fin):
 # 5. FUNCIONES AUXILIARES (FECHAS SENSOR)
 # ==========================================
 
-# --- REEMPLAZAR AL FINAL DE app/repositories.py ---
-
-# --- REEMPLAZAR AL FINAL DE app/repositories.py ---
-
 def get_sensor_start_date(table_name, ema_id_str):
     """
     Busca la fecha más vieja directamente en la tabla unificada (MedicionEMA).
-    Si el reporte funciona, esto TIENE que funcionar.
     """
     fecha_str = "N/A"
     try:
-        # Usamos la misma tabla que tus reportes: MedicionEMA
         # Buscamos la fecha MÍNIMA para esa estación y esa métrica
         min_fecha = db.session.query(func.min(MedicionEMA.fecha))\
             .filter(MedicionEMA.id_proyecto == ema_id_str)\
