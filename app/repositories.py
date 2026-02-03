@@ -1,4 +1,3 @@
-# app/repositories.py
 import pandas as pd
 import io
 from datetime import datetime
@@ -77,7 +76,6 @@ def get_stations_with_escalas_repo():
 
 def get_aforos_data_repo(station_id, f_inicio=None, f_fin=None):
     str_id = str(station_id).strip()
-
     query = db.session.query(
         RhAforosDw,
         EstacionSimparh.ubicacion.label('Nombre Estacion')
@@ -86,7 +84,6 @@ def get_aforos_data_repo(station_id, f_inicio=None, f_fin=None):
 
     if f_inicio:
         query = query.filter(RhAforosDw.fecha_hora >= f_inicio)
-    
     if f_fin:
         if isinstance(f_fin, str):
             f_fin = datetime.strptime(f_fin, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
@@ -101,7 +98,6 @@ def get_aforos_data_repo(station_id, f_inicio=None, f_fin=None):
 
 def get_escalas_data_repo(station_id, f_inicio=None, f_fin=None):
     str_id = str(station_id).strip()
-
     query = db.session.query(
         EstacionSimparh.ubicacion.label('Nombre Estacion'),
         RhEscalasDw.fecha,
@@ -114,14 +110,12 @@ def get_escalas_data_repo(station_id, f_inicio=None, f_fin=None):
 
     if f_inicio:
         query = query.filter(RhEscalasDw.fecha >= f_inicio)
-    
     if f_fin:
         if isinstance(f_fin, str):
             f_fin = datetime.strptime(f_fin, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
         query = query.filter(RhEscalasDw.fecha <= f_fin)
 
     query = query.order_by(RhEscalasDw.fecha.desc())
-
     try:
         df = pd.read_sql(query.statement, db.session.connection())
         return df
@@ -141,17 +135,14 @@ def get_active_stations_ids_today():
     except: return set()
 
 def get_latest_aforo_dates_repo():
-    """Devuelve un diccionario {id_estacion: fecha_ultima_medicion}"""
     q = db.session.query(RhAforosDw.codigo, func.max(RhAforosDw.fecha_hora)).group_by(RhAforosDw.codigo).all()
     return {row[0]: row[1] for row in q if row[0]}
 
 def get_latest_escala_dates_repo():
-    """Devuelve un diccionario {id_estacion: fecha_ultima_lectura}"""
     q = db.session.query(RhEscalasDw.codigo, func.max(RhEscalasDw.fecha)).group_by(RhEscalasDw.codigo).all()
     return {row[0]: row[1] for row in q if row[0]}
 
 def get_sensors_for_station_repo(id_proyecto_str):
-    # 1. Definición de mapas de sensores (Igual que antes)
     mapa_flags = [
         ('pluv', 1, 'Pluviómetro', 'Pluviometrica'),
         ('limn', 2, 'Limnímetro (Nivel)', 'Limnigrafica'),
@@ -167,15 +158,13 @@ def get_sensors_for_station_repo(id_proyecto_str):
         (99, 'Batería', 'Bateria'), (98, 'Presión', 'Barometrica'),
         (90, 'Calidad - Conductividad', 'Conductividad'), 
         (91, 'Calidad - pH', 'PH'),
-        (92, 'Calidad - Turbidez', 'Turbidez'),
+        (92, 'Calidad - Turbidimetrica', 'Turbidimetrica'),
         (93, 'Calidad - Temp. Agua', 'Temp Agua')
     ]
 
     sensors = []
 
-    # --- CASO 1: TODAS LAS ESTACIONES ---
     if str(id_proyecto_str) == 'todas':
-        # ... (Logica existente para 'todas', dejar igual) ...
         seen = set()
         for _, sid, nombre, metrica in mapa_flags:
             if metrica not in seen:
@@ -185,64 +174,43 @@ def get_sensors_for_station_repo(id_proyecto_str):
             sensors.append({'id': sid, 'nombre': nom, 'table_name': met, 'search_text': nom.lower(), 'fecha_inicio': 'N/A', 'ultimo_dato': 'N/A'})
         return sensors
 
-    # --- CASO 2: UNA SOLA ESTACIÓN (OPTIMIZADO) ---
     try:
-        # OPTIMIZACIÓN: Traemos fecha INICIO y fecha FIN
-        # SQL equivalente: SELECT metrica, MIN(fecha), MAX(fecha) FROM MedicionEMA ...
         q_dates = db.session.query(
             MedicionEMA.metrica, 
             func.min(MedicionEMA.fecha),
-            func.max(MedicionEMA.fecha)  # <--- NUEVO: Obtenemos el último dato
+            func.max(MedicionEMA.fecha)
         ).filter(MedicionEMA.id_proyecto == id_proyecto_str)\
          .group_by(MedicionEMA.metrica).all()
 
-        # Diccionarios para búsqueda rápida
         fechas_map = {}
         ultimos_datos_map = {}
 
         for row in q_dates:
-            # row[0]=metrica, row[1]=min, row[2]=max
-            if row[1]: 
-                fechas_map[row[0]] = row[1].strftime('%Y-%m-%d')
-            if row[2]:
-                # Guardamos la fecha del ultimo dato formateada
-                ultimos_datos_map[row[0]] = row[2].strftime('%d/%m/%Y %H:%M')
+            if row[1]: fechas_map[row[0]] = row[1].strftime('%Y-%m-%d')
+            if row[2]: ultimos_datos_map[row[0]] = row[2].strftime('%d/%m/%Y %H:%M')
 
-        # Obtenemos las métricas activas
         metricas_activas = list(fechas_map.keys())
-        
         seen_metrics = set()
         
-        # Procesamos mapa principal
         for _, sid, nombre, metrica_db in mapa_flags:
             if any(metrica_db in m for m in metricas_activas):
                 if metrica_db not in seen_metrics:
                     f_inicio = fechas_map.get(metrica_db, 'N/A')
-                    f_fin = ultimos_datos_map.get(metrica_db, 'Sin datos') # <--- NUEVO
-                    
+                    f_fin = ultimos_datos_map.get(metrica_db, 'Sin datos')
                     sensors.append({
-                        'id': sid, 
-                        'nombre': nombre, 
-                        'table_name': metrica_db, 
-                        'search_text': nombre.lower(), 
-                        'fecha_inicio': f_inicio,
-                        'ultimo_dato': f_fin  # <--- CAMPO NUEVO PARA EL FRONT
+                        'id': sid, 'nombre': nombre, 'table_name': metrica_db, 
+                        'search_text': nombre.lower(), 'fecha_inicio': f_inicio, 'ultimo_dato': f_fin
                     })
                     seen_metrics.add(metrica_db)
 
-        # Procesamos extras
         for sid, nom, met in extras:
+            # Corregido: Verificamos si la métrica existe en la base de datos
             if any(met in m for m in metricas_activas):
                 f_inicio = fechas_map.get(met, 'N/A')
-                f_fin = ultimos_datos_map.get(met, 'Sin datos') # <--- NUEVO
-                
+                f_fin = ultimos_datos_map.get(met, 'Sin datos')
                 sensors.append({
-                    'id': sid, 
-                    'nombre': nom, 
-                    'table_name': met, 
-                    'search_text': nom.lower(), 
-                    'fecha_inicio': f_inicio,
-                    'ultimo_dato': f_fin  # <--- CAMPO NUEVO PARA EL FRONT
+                    'id': sid, 'nombre': nom, 'table_name': met, 
+                    'search_text': nom.lower(), 'fecha_inicio': f_inicio, 'ultimo_dato': f_fin
                 })
 
     except Exception as e:
@@ -277,26 +245,18 @@ def get_dashboard_data_repo(id_proyecto_str):
     return data
 
 def get_map_popup_status_repo(id_proyecto_str):
-    # 1. Recuperamos la configuración de nombres (esto ya lo optimizamos antes, es rápido)
     sensores_config = get_sensors_for_station_repo(id_proyecto_str)
-    
-    # Mapa para traducir de "Nombre DB" (ej: Limnigrafica) a "Nombre Lindo" (ej: Limnímetro)
-    # Lo convertimos a dict para busqueda rapida: {'Limnigrafica': 'Limnímetro (Nivel)', ...}
     mapa_nombres = {s['table_name']: s['nombre'] for s in sensores_config}
-    
     hoy_inicio = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     resultado = []
 
     try:
-        # 2. LA MAGIA: Traer el ÚLTIMO dato de TODOS los sensores en UNA sola consulta
-        # Paso A: Subconsulta para encontrar la fecha máxima por métrica para esta estación
         stmt_max_fechas = db.session.query(
             MedicionEMA.metrica,
             func.max(MedicionEMA.fecha).label('max_fecha')
         ).filter(MedicionEMA.id_proyecto == id_proyecto_str)\
          .group_by(MedicionEMA.metrica).subquery()
 
-        # Paso B: Unir la tabla principal con la subconsulta para sacar el valor
         query = db.session.query(MedicionEMA).join(
             stmt_max_fechas,
             and_(
@@ -307,16 +267,13 @@ def get_map_popup_status_repo(id_proyecto_str):
         
         datos_recientes = query.all()
 
-        # 3. Procesar los datos en memoria (Python es rápido para esto)
         for dato in datos_recientes:
-            # Solo mostramos si es un sensor que tenemos configurado para mostrar
             if dato.metrica in mapa_nombres:
                 nombre_display = mapa_nombres[dato.metrica]
                 estado = 'online' if dato.fecha >= hoy_inicio else 'offline'
                 fecha_str = dato.fecha.strftime('%Y-%m-%d %H:%M')
                 val = dato.valor
                 
-                # Formateo de unidades
                 valor_str = str(val)
                 m_real = dato.metrica
                 if 'Pluvio' in m_real: valor_str = f"{val} mm"
@@ -326,18 +283,17 @@ def get_map_popup_status_repo(id_proyecto_str):
                 elif 'Bateria' in m_real: valor_str = f"{val} V"
                 elif 'Presion' in m_real or 'Baro' in m_real: valor_str = f"{int(val)} hPa"
                 elif 'Humedad' in m_real: valor_str = f"{int(val)} %"
+                # Formateo para Turbidimetrica
+                elif 'Turbi' in m_real: valor_str = f"{val} NTU"
 
                 resultado.append({
-                    'nombre': nombre_display, 
-                    'valor': valor_str, 
-                    'fecha': fecha_str, 
-                    'estado': estado
+                    'nombre': nombre_display, 'valor': valor_str, 
+                    'fecha': fecha_str, 'estado': estado
                 })
 
     except Exception as e:
         print(f"Error en popup optimizado: {e}")
 
-    # Ordenamos un poco para que quede lindo (opcional)
     resultado.sort(key=lambda x: x['nombre'])
     return resultado
 
@@ -349,15 +305,19 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
         EstacionSimparh.pdo, EstacionSimparh.nomcuenca, EstacionSimparh.ubicacion.label('descripcion')
     ).join(EstacionSimparh, MedicionEMA.id_proyecto == EstacionSimparh.id_proyecto)
     query = query.filter(MedicionEMA.fecha >= fecha_inicio, MedicionEMA.fecha <= fecha_fin)
+    
     if metrica == 'Calidad':
-        query = query.filter(or_(MedicionEMA.metrica.ilike('%Calidad%'), MedicionEMA.metrica.ilike('%Conduct%'), MedicionEMA.metrica.ilike('%Turbiedad%'), MedicionEMA.metrica.ilike('%Ph%')))
+        query = query.filter(or_(MedicionEMA.metrica.ilike('%Calidad%'), MedicionEMA.metrica.ilike('%Conduct%'), MedicionEMA.metrica.ilike('%Turbidimetrica%'), MedicionEMA.metrica.ilike('%Ph%')))
     else:
         query = query.filter(MedicionEMA.metrica == metrica)
+        
     if str(id_proyecto_str) != 'todas':
         query = query.filter(MedicionEMA.id_proyecto == id_proyecto_str)
+        
     query = query.order_by(MedicionEMA.fecha.asc())
     try: df = pd.read_sql(query.statement, db.session.connection())
     except: return pd.DataFrame()
+    
     if df.empty: return df
     meta_cols = ['id_proyecto', 'pdo', 'descripcion']
     if tipo_proceso == 'pluvio_sum' or tipo_proceso == 'daily_sum':
@@ -383,45 +343,29 @@ def generate_chart_report_data(id_proyecto_str, fecha_inicio, fecha_fin, metrica
     return df
 
 def get_chart_data_repo(ema_id, sensor_info_list, f_inicio, f_fin):
-    if not sensor_info_list or not ema_id:
-        return pd.DataFrame()
-
+    if not sensor_info_list or not ema_id: return pd.DataFrame()
     metricas_reales = []
     for item in sensor_info_list:
         try:
             parts = item.split('|')
-            if len(parts) >= 2:
-                metricas_reales.append(parts[1])
-        except:
-            continue
+            if len(parts) >= 2: metricas_reales.append(parts[1])
+        except: continue
 
-    if not metricas_reales:
-        return pd.DataFrame()
+    if not metricas_reales: return pd.DataFrame()
 
-    query = db.session.query(
-        MedicionEMA.fecha,
-        MedicionEMA.valor,
-        MedicionEMA.metrica
-    ).filter(
-        MedicionEMA.id_proyecto == ema_id,
-        MedicionEMA.metrica.in_(metricas_reales)
-    )
+    query = db.session.query(MedicionEMA.fecha, MedicionEMA.valor, MedicionEMA.metrica)\
+              .filter(MedicionEMA.id_proyecto == ema_id, MedicionEMA.metrica.in_(metricas_reales))
 
-    if f_inicio:
-        query = query.filter(MedicionEMA.fecha >= f_inicio)
-    
+    if f_inicio: query = query.filter(MedicionEMA.fecha >= f_inicio)
     if f_fin:
         if isinstance(f_fin, str):
             try:
                 f_fin_dt = datetime.strptime(f_fin, '%Y-%m-%d').replace(hour=23, minute=59, second=59)
                 query = query.filter(MedicionEMA.fecha <= f_fin_dt)
-            except:
-                pass 
-        else:
-            query = query.filter(MedicionEMA.fecha <= f_fin)
+            except: pass 
+        else: query = query.filter(MedicionEMA.fecha <= f_fin)
 
     query = query.order_by(MedicionEMA.fecha.asc())
-
     try:
         df = pd.read_sql(query.statement, db.session.connection())
         return df
@@ -434,25 +378,14 @@ def get_chart_data_repo(ema_id, sensor_info_list, f_inicio, f_fin):
 # ==========================================
 
 def get_sensor_start_date(table_name, ema_id_str):
-    """
-    Busca la fecha más vieja directamente en la tabla unificada (MedicionEMA).
-    """
     fecha_str = "N/A"
     try:
-        # Buscamos la fecha MÍNIMA para esa estación y esa métrica
         min_fecha = db.session.query(func.min(MedicionEMA.fecha))\
             .filter(MedicionEMA.id_proyecto == ema_id_str)\
             .filter(MedicionEMA.metrica == table_name)\
             .scalar()
-
         if min_fecha:
-            # Formato ISO para que el calendario HTML lo acepte
             fecha_str = min_fecha.strftime('%Y-%m-%d')
-            print(f"DEBUG: Fecha encontrada para {table_name}: {fecha_str}")
-        else:
-            print(f"DEBUG: No hay datos para {table_name} en MedicionEMA")
-
     except Exception as e:
         print(f"Error buscando fecha min: {e}")
-        
     return fecha_str
