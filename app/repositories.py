@@ -278,6 +278,8 @@ def get_map_popup_status_repo(id_proyecto_str):
                 m_real = dato.metrica
                 if 'Pluvio' in m_real: valor_str = f"{val} mm"
                 elif 'Limni' in m_real: valor_str = f"{val} m"
+                elif 'Conductividad' in m_real: valor_str = f"{val} µS/cm"
+                elif 'Freatimetrica' in m_real: valor_str = f"{val} m"
                 elif 'Temp' in m_real: valor_str = f"{val} °C"
                 elif 'Viento' in m_real or 'Anemo' in m_real: valor_str = f"{val} km/h"
                 elif 'Bateria' in m_real: valor_str = f"{val} V"
