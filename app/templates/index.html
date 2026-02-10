@@ -47,6 +47,42 @@
     .popup-custom .leaflet-popup-content {
         margin: 12px; width: 260px !important;
     }
+    
+    /* --- ANIMACIONES DE PULSO --- */
+    
+    /* ROJO (Emergencia) */
+    @keyframes pulse-red {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(220, 53, 69, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+    }
+    
+    /* NARANJA (Alerta Alta) - NUEVO */
+    @keyframes pulse-orange {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(253, 126, 20, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(253, 126, 20, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(253, 126, 20, 0); }
+    }
+
+    /* AMARILLO (Precaución) */
+    @keyframes pulse-yellow {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 193, 7, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); }
+    }
+
+    /* VERDE (Normal) */
+    @keyframes pulse-green {
+        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(25, 135, 84, 0.7); }
+        70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(25, 135, 84, 0); }
+        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(25, 135, 84, 0); }
+    }
+
+    /* Clases para aplicar la animación */
+    .pulse-icon-red div { animation: pulse-red 2s infinite; }
+    .pulse-icon-orange div { animation: pulse-orange 2s infinite; }
+    .pulse-icon-yellow div { animation: pulse-yellow 2s infinite; }
+    .pulse-icon-green div { animation: pulse-green 2s infinite; }
 </style>
 
 <div class="full-screen-map-container">
@@ -59,32 +95,28 @@
         const allEmas = {{ ema_locations | tojson }};
         const owmApiKey = {{ owm_api_key | tojson }};
         
-        // URLs
         const urlDashboard = "{{ url_for('main.chart_dashboard_page') }}";
         const urlReporteAforos = "{{ url_for('main.report_aforos_page') }}";
         const urlReporteEscalas = "{{ url_for('main.report_escalas_page') }}";
         
-        // Inicializar Mapa
         const map = L.map('map', { zoomControl: false }).setView([-34.6, -58.8], 9);
         L.control.zoom({ position: 'topright' }).addTo(map);
 
-        // Capas
-        const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
-            attribution: '© OpenStreetMap, © CARTO' 
-        });
-        const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '© Esri'
-        });
+        const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© OpenStreetMap, © CARTO' });
+        const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: '© Esri' });
         const rainLayer = L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { maxZoom: 18 });
         const cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { maxZoom: 18 });
 
         baseLayer.addTo(map);
         L.control.layers({ "Mapa Claro": baseLayer, "Satélite": satLayer }, { "Lluvia (OWM)": rainLayer, "Nubes (OWM)": cloudLayer }, { position: 'topright' }).addTo(map);
 
-        // Iconos
-        const createIcon = (color) => {
+        // --- ICONOS ---
+        const createIcon = (color, pulseClass = '') => {
+            let cssClass = 'custom-div-icon';
+            if (pulseClass) cssClass += ` ${pulseClass}`; 
+
             return L.divIcon({
-                className: 'custom-div-icon',
+                className: cssClass,
                 html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.4);"></div>`,
                 iconSize: [14, 14],
                 iconAnchor: [7, 7],
@@ -92,20 +124,67 @@
             });
         };
 
-        const iconOnline = createIcon('#198754'); // Verde (EMA Online)
-        const iconOffline = createIcon('#dc3545'); // Rojo (EMA Offline)
+        const iconNormal   = createIcon('#198754'); 
+        const iconSafe     = createIcon('#198754', 'pulse-icon-green');  // Verde pulsante
+        const iconWarning  = createIcon('#ffc107', 'pulse-icon-yellow'); // Amarillo pulsante
+        const iconOrange   = createIcon('#fd7e14', 'pulse-icon-orange'); // Naranja pulsante (Nuevo)
+        const iconDanger   = createIcon('#dc3545', 'pulse-icon-red');    // Rojo pulsante
+        const iconOffline  = createIcon('#6c757d'); 
         
-        // --- COLORES ---
-        const iconEscala = createIcon('#000000'); // Negro (Escalas)
-        const iconAforo = createIcon('#0dcaf0');  // Celeste (Aforos)
-        const iconOther = createIcon('#6c757d');  // Gris (Por defecto/Sin datos)  
+        const iconEscala   = createIcon('#000000'); 
+        const iconAforo    = createIcon('#0dcaf0');  
+        const iconOther    = createIcon('#6c757d');  
 
         let markersLayer = L.layerGroup().addTo(map);
 
-        // Popup Logic
+        // --- LÓGICA POPUP ---
         function openPopup(marker, ema) {
+            let alertBanner = '';
+            
+            if (ema.is_ema) {
+                if (ema.alerta === 'ROJO') {
+                    alertBanner = `
+                        <div class="alert alert-danger d-flex align-items-center p-2 mb-2 shadow-sm border-danger" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill fs-4 me-2"></i>
+                            <div>
+                                <div class="fw-bold lh-1" style="font-size: 0.9rem;">¡ALERTA MÁXIMA!</div>
+                                <div class="small" style="font-size: 0.75rem;">Nivel Crítico (Rojo)</div>
+                            </div>
+                        </div>`;
+                } else if (ema.alerta === 'NARANJA') {
+                    // CARTEL NARANJA
+                    alertBanner = `
+                        <div class="alert d-flex align-items-center p-2 mb-2 shadow-sm" style="background-color: #ffe5d0; border: 1px solid #fd7e14; color: #cc5200;" role="alert">
+                            <i class="bi bi-exclamation-circle-fill fs-4 me-2"></i>
+                            <div>
+                                <div class="fw-bold lh-1" style="font-size: 0.9rem;">ALERTA ALTA</div>
+                                <div class="small" style="font-size: 0.75rem;">Nivel Muy Alto (Naranja)</div>
+                            </div>
+                        </div>`;
+                } else if (ema.alerta === 'AMARILLO') {
+                    alertBanner = `
+                        <div class="alert alert-warning d-flex align-items-center p-2 mb-2 shadow-sm border-warning text-dark" role="alert">
+                            <i class="bi bi-exclamation-circle-fill fs-4 me-2"></i>
+                            <div>
+                                <div class="fw-bold lh-1" style="font-size: 0.9rem;">PRECAUCIÓN</div>
+                                <div class="small" style="font-size: 0.75rem;">Nivel Amarillo</div>
+                            </div>
+                        </div>`;
+                } else if (ema.alerta === 'VERDE') {
+                    alertBanner = `
+                        <div class="alert alert-success d-flex align-items-center p-2 mb-2 shadow-sm border-success" role="alert">
+                            <i class="bi bi-check-circle-fill fs-4 me-2"></i>
+                            <div>
+                                <div class="fw-bold lh-1" style="font-size: 0.9rem;">NORMAL</div>
+                                <div class="small" style="font-size: 0.75rem;">Sin riesgo</div>
+                            </div>
+                        </div>`;
+                }
+            }
+
             let popupContent = `
-                <div style="min-width: 220px;">
+                <div style="min-width: 240px;">
+                    ${alertBanner} 
                     <h6 class="mb-1 fw-bold text-dark">${ema.nombre}</h6>
                     <small class="text-muted d-block mb-3 border-bottom pb-2">${ema.descripcion}</small>
             `;
@@ -113,19 +192,16 @@
             if (ema.is_ema) {
                 const targetUrl = `${urlDashboard}?ema_id=${encodeURIComponent(ema.id)}`;
                 
-                // === AQUI ESTA EL CAMBIO: text-white en el botón ===
                 popupContent += `
                     <div class="d-flex align-items-center mb-2">
                         <span class="badge bg-success me-2">EMA</span><small class="text-muted">Automática</small>
                     </div>
                     <div id="popup-sensors-list" class="mb-3 bg-light p-2 rounded">
-                        <div class="text-center text-muted small"><span class="spinner-border spinner-border-sm"></span> Cargando...</div>
+                        <div class="text-center text-muted small"><span class="spinner-border spinner-border-sm"></span> Cargando datos...</div>
                     </div>
-                    <div class="d-grid"><a href="${targetUrl}" class="btn btn-sm btn-primary text-white"><i class="bi bi-speedometer2"></i> Dashboard</a></div>
+                    <div class="d-grid"><a href="${targetUrl}" class="btn btn-sm btn-primary text-white"><i class="bi bi-speedometer2"></i> Ver Tablero</a></div>
                 `;
-                // ===================================================
                 
-                // --- FETCH PARA TRAER DATOS Y FECHAS ---
                 fetch(`/api/map-status/${encodeURIComponent(ema.id)}`)
                     .then(res => res.json())
                     .then(sensores => {
@@ -135,23 +211,51 @@
                             htmlList += '<li class="text-muted text-center">Sin sensores.</li>';
                         } else {
                             sensores.forEach(s => {
-                                const color = s.estado === 'online' ? 'text-success' : 'text-danger';
-                                const icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+                                let valorClass = "fw-bold text-dark";
+                                let icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+                                let colorIcon = s.estado === 'online' ? 'text-success' : 'text-danger';
+
+                                const isLevelSensor = s.nombre.includes('Limn') || s.nombre.includes('Nivel');
+
+                                if (isLevelSensor) {
+                                    if (ema.alerta === 'ROJO') {
+                                        valorClass = "fw-bolder text-danger fs-6"; 
+                                        icon = 'bi-exclamation-triangle-fill';
+                                        colorIcon = 'text-danger';
+                                    } else if (ema.alerta === 'NARANJA') {
+                                        valorClass = "fw-bolder fs-6"; 
+                                        icon = 'bi-exclamation-circle-fill';
+                                        colorIcon = 'text-warning'; // Usamos warning pero pintamos de naranja abajo
+                                        // Estilo inline para Naranja
+                                        valorClass += ' text-orange-custom'; 
+                                    } else if (ema.alerta === 'AMARILLO') {
+                                        valorClass = "fw-bolder fs-6 text-warning"; 
+                                        icon = 'bi-exclamation-circle-fill';
+                                        colorIcon = 'text-warning';
+                                    } else if (ema.alerta === 'VERDE') {
+                                        valorClass = "fw-bold text-success";
+                                        icon = 'bi-shield-check';
+                                    }
+                                }
+
+                                const fechaTexto = s.fecha ? `Último dato: ${s.fecha}` : '';
                                 
-                                // Texto de fecha
-                                const fechaTexto = s.fecha ? `Última fecha: ${s.fecha}` : '';
+                                // Color específico para el valor numérico en caso Naranja
+                                let styleAttr = '';
+                                if (isLevelSensor && ema.alerta === 'NARANJA') styleAttr = 'style="color: #fd7e14 !important;"';
+                                if (isLevelSensor && ema.alerta === 'AMARILLO') styleAttr = 'style="color: #bfa100 !important;"';
 
                                 htmlList += `
                                 <li class="d-flex justify-content-between align-items-center mb-2 border-bottom border-light pb-1">
                                     <div class="d-flex flex-column">
-                                        <span class="${color}">
+                                        <span class="${colorIcon}" ${ (isLevelSensor && ema.alerta === 'NARANJA') ? 'style="color: #fd7e14 !important;"' : '' }>
                                             <i class="bi ${icon}"></i> ${s.nombre}
                                         </span>
-                                        <small class="text-muted" style="font-size: 0.75em; padding-left: 18px;">
+                                        <small class="text-muted" style="font-size: 0.7em; padding-left: 18px;">
                                             ${fechaTexto}
                                         </small>
                                     </div>
-                                    <span class="fw-bold text-dark">${s.valor}</span>
+                                    <span class="${valorClass}" ${styleAttr}>${s.valor}</span>
                                 </li>`;
                             });
                         }
@@ -160,25 +264,16 @@
                         const el = document.getElementById('popup-sensors-list');
                         if(el) el.innerHTML = htmlList;
                     }).catch(()=>{});
-                // ---------------------------------------
 
             } else {
                 let hasData = false;
                 if (ema.last_aforo) {
                     hasData = true;
-                    popupContent += `
-                        <div class="card border-0 bg-primary bg-opacity-10 mb-2 p-2">
-                            <div class="d-flex align-items-center mb-1"><i class="bi bi-water text-primary me-2"></i><small class="fw-bold text-primary">Último Aforo (${ema.last_aforo})</small></div>
-                            <a href="${urlReporteAforos}?ema_id=${ema.db_id}" class="btn btn-primary btn-sm w-100 py-0 small text-white">Descargar</a>
-                        </div>`;
+                    popupContent += `<div class="card border-0 bg-primary bg-opacity-10 mb-2 p-2"><div class="d-flex align-items-center mb-1"><i class="bi bi-water text-primary me-2"></i><small class="fw-bold text-primary">Último Aforo (${ema.last_aforo})</small></div><a href="${urlReporteAforos}?ema_id=${ema.db_id}" class="btn btn-primary btn-sm w-100 py-0 small text-white">Descargar</a></div>`;
                 }
                 if (ema.last_escala) {
                     hasData = true;
-                    popupContent += `
-                        <div class="card border-0 bg-info bg-opacity-10 mb-2 p-2">
-                            <div class="d-flex align-items-center mb-1"><i class="bi bi-ruler text-info me-2"></i><small class="fw-bold text-info">Última Lectura De Escala (${ema.last_escala})</small></div>
-                            <a href="${urlReporteEscalas}?ema_id=${ema.db_id}" class="btn btn-info btn-sm w-100 py-0 small text-white">Descargar</a>
-                        </div>`;
+                    popupContent += `<div class="card border-0 bg-info bg-opacity-10 mb-2 p-2"><div class="d-flex align-items-center mb-1"><i class="bi bi-ruler text-info me-2"></i><small class="fw-bold text-info">Última Lectura De Escala (${ema.last_escala})</small></div><a href="${urlReporteEscalas}?ema_id=${ema.db_id}" class="btn btn-info btn-sm w-100 py-0 small text-white">Descargar</a></div>`;
                 }
                 if (!hasData) popupContent += `<div class="alert alert-secondary small text-center p-2 mb-0">Sin datos recientes</div>`;
             }
@@ -186,7 +281,6 @@
             L.popup({ className: 'popup-custom' }).setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
         }
 
-        // Render Map
         function updateMap() {
             markersLayer.clearLayers();
             const selTipo = document.getElementById('filter-tipo').value;
@@ -194,23 +288,29 @@
             const selPartido = document.getElementById('filter-partido').value;
 
             allEmas.forEach(ema => {
-                // Filtros
                 if (selTipo === 'EMA' && !ema.is_ema) return;
                 if (selTipo === 'MANUAL' && ema.is_ema) return;
                 if (selCuenca !== 'todas' && ema.cuenca !== selCuenca) return;
                 if (selPartido !== 'todas' && ema.partido !== selPartido) return;
 
-                // Colores
                 let icon = iconOther; 
-
                 if (ema.is_ema) {
-                    icon = (ema.status === 'online') ? iconOnline : iconOffline;
-                } else {
-                    if (ema.last_escala) {
-                        icon = iconEscala; 
-                    } else if (ema.last_aforo) {
-                        icon = iconAforo;  
+                    if (ema.alerta === 'ROJO') {
+                        icon = iconDanger; 
+                    } else if (ema.alerta === 'NARANJA') {
+                        icon = iconOrange; 
+                    } else if (ema.alerta === 'AMARILLO') {
+                        icon = iconWarning; 
+                    } else if (ema.alerta === 'VERDE') {
+                        icon = iconSafe; 
+                    } else if (ema.status === 'online') {
+                        icon = iconNormal; 
+                    } else {
+                        icon = iconOffline; 
                     }
+                } else {
+                    if (ema.last_escala) icon = iconEscala; 
+                    else if (ema.last_aforo) icon = iconAforo;  
                 }
 
                 const marker = L.marker([ema.lat, ema.lon], { icon: icon });
@@ -219,7 +319,6 @@
             });
         }
 
-        // Populate Filters
         function populateFilters() {
             const cuencas = new Set(), partidos = new Set();
             allEmas.forEach(e => {

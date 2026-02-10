@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import func, or_, distinct, cast, String, text, and_
 from .extensions import db
 from .models import EstacionSimparh, MedicionEMA, RhAforosDw, RhEscalasDw
+from .alert_rules import ALERTA_CONFIG
 
 # ==========================================
 # 1. GENERACIÓN DE EXCEL
@@ -204,7 +205,6 @@ def get_sensors_for_station_repo(id_proyecto_str):
                     seen_metrics.add(metrica_db)
 
         for sid, nom, met in extras:
-            # Corregido: Verificamos si la métrica existe en la base de datos
             if any(met in m for m in metricas_activas):
                 f_inicio = fechas_map.get(met, 'N/A')
                 f_fin = ultimos_datos_map.get(met, 'Sin datos')
@@ -286,7 +286,6 @@ def get_map_popup_status_repo(id_proyecto_str):
                 elif 'Bateria' in m_real: valor_str = f"{val} V"
                 elif 'Presion' in m_real or 'Baro' in m_real: valor_str = f"{int(val)} hPa"
                 elif 'Humedad' in m_real: valor_str = f"{int(val)} %"
-                # Formateo para Turbidimetrica
                 elif 'Turbi' in m_real: valor_str = f"{val} NTU"
 
                 resultado.append({
@@ -376,10 +375,6 @@ def get_chart_data_repo(ema_id, sensor_info_list, f_inicio, f_fin):
         print(f"Error en get_chart_data_repo: {e}")
         return pd.DataFrame()
 
-# ==========================================
-# 5. FUNCIONES AUXILIARES (FECHAS SENSOR)
-# ==========================================
-
 def get_sensor_start_date(table_name, ema_id_str):
     fecha_str = "N/A"
     try:
@@ -392,3 +387,56 @@ def get_sensor_start_date(table_name, ema_id_str):
     except Exception as e:
         print(f"Error buscando fecha min: {e}")
     return fecha_str
+
+# ==========================================
+# 6. SISTEMA DE ALERTAS (SEMÁFORO)
+# ==========================================
+
+
+def check_alert_status_repo(id_proyecto_str, nombre_estacion=None):
+    """
+    Verifica alertas dinámicamente usando app/alert_rules.py
+    """
+    str_id = str(id_proyecto_str).strip()
+    nombre_limpio = str(nombre_estacion).upper() if nombre_estacion else ""
+    
+    config = None
+    
+    # 1. BÚSQUEDA INTELIGENTE EN EL ARCHIVO DE REGLAS
+    # Recorremos todas las claves definidas en alert_rules.py (ej: 'FALBO', 'ARROYO', etc.)
+    for palabra_clave, reglas in ALERTA_CONFIG.items():
+        if palabra_clave in nombre_limpio:
+            config = reglas
+            break # Encontramos la regla, dejamos de buscar
+    
+    # Si no encontramos ninguna regla para esta estación, retornamos None (Verde normal/Gris)
+    if not config:
+        return None 
+        
+    try:
+        # 2. BUSCAR DATO
+        # Usamos LIKE para ser tolerantes con los espacios en el ID de la base
+        ultimo_dato = db.session.query(MedicionEMA.valor)\
+            .filter(MedicionEMA.id_proyecto.ilike(f"%{str_id}%"))\
+            .filter(MedicionEMA.metrica == 'Limnigrafica')\
+            .order_by(MedicionEMA.fecha.desc())\
+            .first()
+            
+        if not ultimo_dato:
+            return None 
+            
+        valor = float(ultimo_dato.valor)
+        
+        # 3. COMPARAR CON LOS UMBRALES DE LA REGLA ENCONTRADA
+        if valor >= config['rojo']:
+            return 'ROJO'
+        elif valor >= config['naranja']:
+            return 'NARANJA'
+        elif valor >= config['amarillo']:
+            return 'AMARILLO'
+        else:
+            return 'VERDE'
+            
+    except Exception as e:
+        print(f"Error calculando alerta: {e}")
+        return None

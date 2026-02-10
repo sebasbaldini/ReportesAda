@@ -11,6 +11,7 @@ def get_unified_ema_list_service():
     lista = []
     for s in stations:
         if s.id_proyecto:
+            # ORIGINAL: Pasamos el ID tal cual viene de la base (con espacios si los tiene)
             nombre_display = f"{s.ubicacion} ({s.proyecto})" if s.ubicacion else s.proyecto
             lista.append((s.id_proyecto, nombre_display))
     return lista
@@ -19,7 +20,6 @@ def get_all_unified_locations_service():
     stations = repositories.get_all_stations_repo()
     active_ids = repositories.get_active_stations_ids_today()
     
-    # 1. Obtenemos las últimas fechas disponibles
     last_aforos = repositories.get_latest_aforo_dates_repo()
     last_escalas = repositories.get_latest_escala_dates_repo()
 
@@ -31,20 +31,18 @@ def get_all_unified_locations_service():
             if "COMIREC" in proyecto_str: tipo_red = "COMIREC"
             elif "SIMATH" in proyecto_str or "SIMPARH" in proyecto_str: tipo_red = "SIMATH"
             
-            # Estado Online/Offline (solo relevante para EMAs)
+            # ORIGINAL: Lógica simple de estado
             estado = 'online' if s.id_proyecto in active_ids else 'offline'
             
-            # 2. Detectamos qué datos tiene esta estación
             tiene_ema = bool(s.id_proyecto)
             fecha_aforo = last_aforos.get(s.id)
             fecha_escala = last_escalas.get(s.id)
 
-            # Formateamos las fechas para el frontend
             str_aforo = fecha_aforo.strftime('%d/%m/%Y') if fecha_aforo else None
             str_escala = fecha_escala.strftime('%d/%m/%Y') if fecha_escala else None
 
             result.append({
-                'id': s.id_proyecto if s.id_proyecto else s.id, 
+                'id': s.id_proyecto if s.id_proyecto else s.id,  # ORIGINAL: Sin .strip()
                 'db_id': s.id, 
                 'nombre': s.ubicacion or s.id_proyecto, 
                 'descripcion': f"Cuenca: {s.nomcuenca} | Partido: {s.pdo}",
@@ -58,18 +56,10 @@ def get_all_unified_locations_service():
             })
     return result
 
-# --- CORRECCIÓN FECHA DE INICIO ---
 def get_sensors_for_ema_service(dummy_db, ema_id):
-    # Llamamos al repositorio optimizado
     sensors = repositories.get_sensors_for_station_repo(ema_id)
-    
-    # Filtrado de seguridad (Mantenemos esto)
     if current_user.is_authenticated and getattr(current_user, 'role', 'admin') == 'restricted':
         sensors = [s for s in sensors if 'bateria' not in s['search_text']]
-    
-    # ELIMINAR EL BUCLE QUE BUSCABA FECHAS AQUÍ. 
-    # Ya lo hace el repositorio en una sola consulta.
-                
     return sensors
 
 def get_dashboard_data_service(dummy_db, ema_id):
@@ -79,7 +69,6 @@ def get_map_popup_status_service(dummy_db, ema_id):
     return repositories.get_map_popup_status_repo(ema_id)
 
 def generate_report_service(dummy_db, form_data):
-    """Genera reporte de EMAs (Sensores)"""
     raw_ids = form_data.getlist('ema_id')
     if not raw_ids:
         single = form_data.get('ema_id')
@@ -405,6 +394,7 @@ def generate_chart_excel_service(user, ema_id, sensor_info_list, f_inicio, f_fin
 
     # 2. Recuperamos info de la estación para el encabezado
     all_stations = repositories.get_all_stations_repo()
+    # ORIGINAL: Búsqueda exacta sin strip() porque así viene del frontend ahora
     station_obj = next((s for s in all_stations if s.id_proyecto == ema_id), None)
     
     ema_nombre = station_obj.ubicacion if station_obj else ema_id
