@@ -24,7 +24,7 @@
         {% if current_user.is_authenticated %}
         <div id="sidebar-wrapper">
             <div class="sidebar-heading p-0 bg-transparent text-center">
-                <a href="{{ url_for('main.index') }}" class="d-block">
+                <a href="{{ url_for('main.index') }}" class="d-block py-3">
                     <img src="{{ url_for('static', filename='imagenes/LogoPagina.png') }}" 
                          alt="SIMPARH" class="img-fluid" style="max-height: 80px; width: auto;">
                 </a>
@@ -72,6 +72,12 @@
                             <i class="bi bi-tsunami me-2"></i> Reporte de Escalas
                         </a>
 
+                        <a href="{{ url_for('main.report_lecturas_page') }}" 
+                           class="list-group-item list-group-item-action bg-transparent text-white small ps-5 border-0 sidebar-link"
+                           style="white-space: nowrap;">
+                            <i class="bi bi-eye me-2"></i> Monitoreo Participativo
+                        </a>
+
                     </div>
                 </div>
             </div>
@@ -88,14 +94,11 @@
         <div id="page-content-wrapper" class="w-100">
             <nav class="navbar navbar-light bg-light border-bottom px-3">
                 <div class="container-fluid p-0">
-                    
                     {% if current_user.is_authenticated %}
                     <button class="btn btn-primary d-md-none" id="menu-toggle">
                         <i class="bi bi-list"></i> Menú
                     </button>
                     {% endif %}
-                    
-                   
                 </div>
             </nav>
             {% with messages = get_flashed_messages(with_categories=true) %}

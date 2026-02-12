@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Reporte - Monitoreo Participativo{% endblock %}
+
+{% block content %}
+<div class="card shadow-sm border-0">
+    <div class="card-body p-4 p-md-5">
+        
+        <h1 class="h3 mb-3 text-center" style="color: #6f42c1;">Reporte de Lecturas (MP)</h1>
+        <p class="text-muted mb-4 text-center">Descarga de datos observados por la red de monitoreo participativo.</p>
+
+        <form action="{{ url_for('main.download_lecturas_report') }}" method="POST">
+            <div class="row g-3 justify-content-center">
+                <div class="col-md-5">
+                    <label class="form-label fw-bold">Estación</label>
+                    <select name="ema_id" class="form-select" required>
+                        <option value="">Seleccione una estación...</option>
+                        {% for id, nombre in emas_list %}
+                        <option value="{{ id }}" {% if request.args.get('ema_id') == id %}selected{% endif %}>{{ nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Desde</label>
+                    <input type="date" name="fecha_inicio" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Hasta</label>
+                    <input type="date" name="fecha_fin" class="form-control">
+                </div>
+                <div class="col-md-11 mt-4">
+                    <button type="submit" class="btn btn-lg w-100 text-white" style="background-color: #6f42c1;">
+                        <i class="bi bi-download"></i> Descargar Excel
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

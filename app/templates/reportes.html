@@ -5,6 +5,7 @@
 {% block content %}
 <div class="card shadow-sm border-0">
 <div class="card-body p-4 p-md-5">
+    
     <div class="alert alert-warning d-flex align-items-center mt-3" role="alert">
         <i class="bi bi-exclamation-triangle-fill fs-4 me-3"></i>
             <div>
@@ -104,65 +105,42 @@
             
             currentSensorList.forEach(sensor => {
                 const option = document.createElement('option'); 
-                // Value: id|MetricaReal|NombreDisplay
                 option.value = `${sensor.id}|${sensor.table_name}|${sensor.nombre}`;
-                
-                // Guardamos la métrica real (Ej: 'Pluviometrica') para usarla en el IF
                 option.dataset.metric = sensor.table_name; 
-                
                 if (sensor.fecha_inicio) option.dataset.startDate = sensor.fecha_inicio;
                 option.textContent = sensor.nombre;
                 sensorSelect.appendChild(option);
             });
 
             function actualizarOpcionesDeProceso(selectedOption) {
-                // Usamos la métrica real de la base de datos, más seguro
                 const metric = selectedOption ? (selectedOption.dataset.metric || "") : "";
                 processSelect.innerHTML = ''; 
-                
-                // === LÓGICA DE OPCIONES CORREGIDA ===
                 if (metric.includes('Pluvio')) {
-                    // LLUVIA
                     processSelect.innerHTML += '<option value="raw">Dato Crudo</option>';
                     processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>';
                     processSelect.innerHTML += '<option value="pluvio_sum" selected>Acumulado Diario</option>';
                 } else if (metric.includes('Limni') || metric.includes('Freat')) {
-                    // NIVEL
                     processSelect.innerHTML += '<option value="raw">Dato Crudo</option>';
                     processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>';
                     processSelect.innerHTML += '<option value="nivel_max">Nivel Máximo Diario</option>';
                 } else {
-                    // RESTO
                     processSelect.innerHTML += '<option value="raw" selected>Dato Crudo</option>';
                     processSelect.innerHTML += '<option value="avg_hourly">Promedio por Hora</option>'; 
                 }
             }
 
-            // ... dentro del script, busca este evento change ...
-
             sensorSelect.addEventListener('change', function() {
                 const selectedOption = this.options[this.selectedIndex];
                 actualizarOpcionesDeProceso(selectedOption);
-    
-                const fechaInicioInput = document.getElementById('fecha_inicio'); // Referencia al calendario
-
+                const fechaInicioInput = document.getElementById('fecha_inicio'); 
                 if (selectedOption && selectedOption.dataset.startDate) {
-                    const fechaTraida = selectedOption.dataset.startDate; // Guardamos el valor en una variable
-
-                    // 1. Muestra el texto abajo (esto SI acepta "N/A", así que lo dejamos igual)
+                    const fechaTraida = selectedOption.dataset.startDate; 
                     dateInfo.innerHTML = `<i class="bi bi-calendar-event"></i> Datos desde: <strong>${fechaTraida}</strong>`;
                     dateInfo.classList.remove('text-muted'); dateInfo.classList.add('text-primary');
-
-
                 } else {
-                    
                     dateInfo.innerHTML = 'Sin fecha histórica.';
-           
-            }
+                }
             });
-            
-            // Autoseleccionar el segundo si existe (el primero es "--Seleccione--")
-          
             
             inputGroup.appendChild(sensorSelect);
             inputGroup.appendChild(processSelect);

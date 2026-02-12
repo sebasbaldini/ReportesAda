@@ -11,6 +11,26 @@ def index():
     locations = services.get_all_unified_locations_service()
     return render_template('index.html', ema_locations=locations, owm_api_key=config.OWM_API_KEY)
 
+# --- REPORTES LECTURAS (NUEVO) ---
+@main_bp.route('/reportes/lecturas')
+@login_required
+def report_lecturas_page():
+    lecturas_list = services.get_lecturas_active_list_service()
+    return render_template('reportes_lecturas.html', emas_list=lecturas_list)
+
+@main_bp.route('/download-lecturas-report', methods=['POST'])
+@login_required
+def download_lecturas_report():
+    try:
+        data, filename = services.generate_lecturas_report_service(request.form)
+        response = make_response(data)
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        return response
+    except Exception as e:
+        flash(f"Error Lecturas: {str(e)}", 'danger')
+        return redirect(url_for('main.report_lecturas_page'))
+
 # --- REPORTES EMAS ---
 @main_bp.route('/reportes')
 @login_required
@@ -55,12 +75,8 @@ def download_aforo_report():
 @main_bp.route('/reportes/escalas')
 @login_required
 def report_escalas_page():
-    try:
-        escalas_list = services.get_escalas_active_list_service()
-    except AttributeError:
-        # Fallback si el servicio no existe aún
-        escalas_list = services.get_unified_ema_list_service()
-        
+    try: escalas_list = services.get_escalas_active_list_service()
+    except: escalas_list = services.get_unified_ema_list_service()
     return render_template('reportes_escalas.html', emas_list=escalas_list)
 
 @main_bp.route('/download-escala-report', methods=['POST'])
@@ -83,9 +99,7 @@ def download_escala_report():
 def chart_dashboard_page():
     emas = services.get_unified_ema_list_service()
     sel_id = emas[0][0] if emas else 0
-    data = {}
-    if sel_id:
-        data = services.get_dashboard_data_service(None, sel_id)
+    data = {} if not sel_id else services.get_dashboard_data_service(None, sel_id)
     return render_template('graficos.html', emas_list=emas, selected_ema_id=sel_id, dashboard_data=data)
 
 @main_bp.route('/graficos-personalizados')
@@ -97,67 +111,37 @@ def custom_chart_page():
 @main_bp.route('/get-sensors/<string:ema_id>')
 @login_required
 def get_sensors_for_ema(ema_id):
-    # NOTA: La lógica para buscar la fecha MIN debe estar dentro de este servicio en services.py
-    sensors = services.get_sensors_for_ema_service(None, ema_id)
-    return jsonify(sensors)
+    return jsonify(services.get_sensors_for_ema_service(None, ema_id))
 
 @main_bp.route('/api/dashboard-data/<string:ema_id>')
 @login_required
 def get_dashboard_data(ema_id):
-    data = services.get_dashboard_data_service(None, ema_id)
-    return jsonify(data)
+    return jsonify(services.get_dashboard_data_service(None, ema_id))
+
+@main_bp.route('/api/map-status/<string:ema_id>')
+@login_required
+def get_map_status_api(ema_id):
+    try: return jsonify(services.get_map_popup_status_service(None, ema_id))
+    except Exception as e: return jsonify({'error': str(e)}), 500
 
 @main_bp.route('/download-chart-excel')
 @login_required
 def download_chart_excel():
     try:
-        ema_id = request.args.get('ema_id')
-        sensor_info_list = request.args.getlist('sensor_info')
-        fecha_inicio = request.args.get('fecha_inicio')
-        fecha_fin = request.args.get('fecha_fin')
-        
-        # Llama al servicio que contiene la lógica de Pandas y XlsxWriter
-        excel_io, filename = services.generate_chart_excel_service(
-            current_user, ema_id, sensor_info_list, fecha_inicio, fecha_fin
-        )
-        
+        excel_io, filename = services.generate_chart_excel_service(current_user, request.args.get('ema_id'), request.args.getlist('sensor_info'), request.args.get('fecha_inicio'), request.args.get('fecha_fin'))
         if not excel_io:
-            flash("No hay datos para exportar en el rango seleccionado", "warning")
-            # CORREGIDO: custom_charts_page -> custom_chart_page
-            return redirect(url_for('main.custom_chart_page')) 
-
+             flash("No hay datos", "warning")
+             return redirect(url_for('main.custom_chart_page'))
         response = make_response(excel_io.getvalue())
         response.headers['Content-Disposition'] = f'attachment; filename={filename}'
         response.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         return response
-
-    except Exception as e:
-        print(f"Error exportando Excel: {e}")
-        flash("Ocurrió un error al generar el Excel.", "danger")
-        # CORREGIDO: custom_charts_page -> custom_chart_page
-        return redirect(url_for('main.custom_chart_page'))
+    except: return redirect(url_for('main.custom_chart_page'))
 
 @main_bp.route('/api/get-chart-data')
 @login_required
 def get_chart_data():
     try:
-        data = services.get_chart_data_service(
-            None, 
-            request.args.get('ema_id'),
-            request.args.getlist('sensor_info'),
-            request.args.get('fecha_inicio'),
-            request.args.get('fecha_fin'),
-            request.args.get('combine') == 'true'
-        )
+        data = services.get_chart_data_service(None, request.args.get('ema_id'), request.args.getlist('sensor_info'), request.args.get('fecha_inicio'), request.args.get('fecha_fin'), request.args.get('combine') == 'true')
         return jsonify(data)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@main_bp.route('/api/map-status/<string:ema_id>')
-@login_required
-def get_map_status_api(ema_id):
-    try:
-        data = services.get_map_popup_status_service(None, ema_id)
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    except Exception as e: return jsonify({'error': str(e)}), 500

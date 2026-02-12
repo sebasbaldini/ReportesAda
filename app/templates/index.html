@@ -1,192 +1,137 @@
 {% extends "base.html" %}
-
 {% block title %}Mapa Interactivo - SIMPARH{% endblock %}
 
 {% block map_filters %}
 <div class="mt-2 border-top border-secondary pt-2">
-    <h6 class="text-white small fw-bold mb-2 text-uppercase" style="font-size: 0.75rem;">
-        <i class="bi bi-funnel"></i> Filtros
-    </h6>
-
+    <h6 class="text-white small fw-bold mb-2 text-uppercase" style="font-size: 0.75rem;"><i class="bi bi-funnel"></i> Filtros</h6>
     <div class="mb-2">
-        <label for="filter-tipo" class="text-white-50 small mb-0" style="font-size: 0.7rem;">Tipo</label>
+        <label class="text-white-50 small mb-0" style="font-size: 0.7rem;">Tipo</label>
         <select id="filter-tipo" class="form-select form-select-sm py-0" style="font-size: 0.8rem;">
             <option value="EMA" selected>Solo EMAs</option>
-            <option value="MANUAL">Solo Aforos/Escalas</option>
+            <option value="AFOROS">Solo Aforos</option>
+            <option value="ESCALAS">Solo Escalas</option>
+            <option value="MP">Monitoreo Participativo</option>
             <option value="todas">Ver Todas</option>
         </select>
     </div>
-
     <div class="mb-2">
-        <label for="filter-cuenca" class="text-white-50 small mb-0" style="font-size: 0.7rem;">Cuenca</label>
-        <select id="filter-cuenca" class="form-select form-select-sm py-0" style="font-size: 0.8rem;">
-            <option value="todas">Todas</option>
-        </select>
+        <label class="text-white-50 small mb-0" style="font-size: 0.7rem;">Cuenca</label>
+        <select id="filter-cuenca" class="form-select form-select-sm py-0" style="font-size: 0.8rem;"><option value="todas">Todas</option></select>
     </div>
-
     <div class="mb-2">
-        <label for="filter-partido" class="text-white-50 small mb-0" style="font-size: 0.7rem;">Partido</label>
-        <select id="filter-partido" class="form-select form-select-sm py-0" style="font-size: 0.8rem;">
-            <option value="todas">Todos</option>
-        </select>
+        <label class="text-white-50 small mb-0" style="font-size: 0.7rem;">Partido</label>
+        <select id="filter-partido" class="form-select form-select-sm py-0" style="font-size: 0.8rem;"><option value="todas">Todos</option></select>
     </div>
 </div>
 {% endblock %}
 
-
 {% block content %}
 <style>
-    @media (max-width: 768px) {
-        .full-screen-map-container {
-            height: calc(100vh - 60px) !important;
-        }
+    @media (max-width: 768px) { .full-screen-map-container { height: calc(100vh - 60px) !important; } }
+    .popup-custom .leaflet-popup-content-wrapper { border-radius: 8px; padding: 0; overflow: hidden; }
+    .popup-custom .leaflet-popup-content { margin: 12px; width: 260px !important; }
+
+    /* --- AJUSTE: CARTELITO MÁS GRANDE Y LEGIBLE --- */
+    .id-tooltip {
+        background: rgba(255, 255, 255, 0.95);
+        border: 2px solid #666;
+        border-radius: 5px;
+        padding: 2px 6px;
+        font-size: 13px; /* Antes era 10px */
+        font-weight: 800;
+        color: #000;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+        white-space: nowrap;
     }
-    .popup-custom .leaflet-popup-content-wrapper {
-        border-radius: 8px; padding: 0; overflow: hidden;
-    }
-    .popup-custom .leaflet-popup-content {
-        margin: 12px; width: 260px !important;
+    
+    /* Clase para ocultar etiquetas cuando el zoom es alejado */
+    .zoom-hide-labels .leaflet-tooltip {
+        display: none !important;
     }
 </style>
 
 <div class="full-screen-map-container">
-    <div id="map" class="full-h"></div>
+    <div id="map" class="full-h zoom-hide-labels"></div>
 </div>
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        
         const allEmas = {{ ema_locations | tojson }};
         const owmApiKey = {{ owm_api_key | tojson }};
-        
-        // URLs
         const urlDashboard = "{{ url_for('main.chart_dashboard_page') }}";
         const urlReporteAforos = "{{ url_for('main.report_aforos_page') }}";
         const urlReporteEscalas = "{{ url_for('main.report_escalas_page') }}";
+        const urlReporteLecturas = "{{ url_for('main.report_lecturas_page') }}";
         
-        // Inicializar Mapa
         const map = L.map('map', { zoomControl: false }).setView([-34.6, -58.8], 9);
         L.control.zoom({ position: 'topright' }).addTo(map);
 
-        // Capas
-        const baseLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
-            attribution: '© OpenStreetMap, © CARTO' 
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '© CARTO' }).addTo(map);
+
+        const createIcon = (color) => L.divIcon({
+            className: 'custom-div-icon',
+            html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.4);"></div>`,
+            iconSize: [14, 14], iconAnchor: [7, 7], popupAnchor: [0, -10]
         });
-        const satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '© Esri'
-        });
-        const rainLayer = L.tileLayer(`https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { maxZoom: 18 });
-        const cloudLayer = L.tileLayer(`https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmApiKey}`, { maxZoom: 18 });
 
-        baseLayer.addTo(map);
-        L.control.layers({ "Mapa Claro": baseLayer, "Satélite": satLayer }, { "Lluvia (OWM)": rainLayer, "Nubes (OWM)": cloudLayer }, { position: 'topright' }).addTo(map);
-
-        // Iconos
-        const createIcon = (color) => {
-            return L.divIcon({
-                className: 'custom-div-icon',
-                html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.4);"></div>`,
-                iconSize: [14, 14],
-                iconAnchor: [7, 7],
-                popupAnchor: [0, -10]
-            });
-        };
-
-        const iconOnline = createIcon('#198754'); // Verde (EMA Online)
-        const iconOffline = createIcon('#dc3545'); // Rojo (EMA Offline)
-        
-        // --- COLORES ---
-        const iconEscala = createIcon('#000000'); // Negro (Escalas)
-        const iconAforo = createIcon('#0dcaf0');  // Celeste (Aforos)
-        const iconOther = createIcon('#6c757d');  // Gris (Por defecto/Sin datos)  
+        const iconOnline = createIcon('#198754'), iconOffline = createIcon('#dc3545');
+        const iconMP = createIcon('#6f42c1'), iconEscala = createIcon('#000000'), iconAforo = createIcon('#0dcaf0'), iconOther = createIcon('#6c757d');
 
         let markersLayer = L.layerGroup().addTo(map);
 
-        // Popup Logic
+        function handleZoomLabels() {
+            const currentZoom = map.getZoom();
+            const mapDiv = document.getElementById('map');
+            if (currentZoom >= 12) {
+                mapDiv.classList.remove('zoom-hide-labels');
+            } else {
+                mapDiv.classList.add('zoom-hide-labels');
+            }
+        }
+
+        map.on('zoomend', handleZoomLabels);
+
         function openPopup(marker, ema) {
-            let popupContent = `
-                <div style="min-width: 220px;">
-                    <h6 class="mb-1 fw-bold text-dark">${ema.nombre}</h6>
-                    <small class="text-muted d-block mb-3 border-bottom pb-2">${ema.descripcion}</small>
-            `;
-
+            let popupContent = `<div style="min-width: 220px;"><h6 class="mb-1 fw-bold text-dark">${ema.db_id} - ${ema.nombre}</h6><small class="text-muted d-block mb-3 border-bottom pb-2">${ema.descripcion}</small>`;
+            
             if (ema.is_ema) {
-                const targetUrl = `${urlDashboard}?ema_id=${encodeURIComponent(ema.id)}`;
-                
-                // === AQUI ESTA EL CAMBIO: text-white en el botón ===
-                popupContent += `
-                    <div class="d-flex align-items-center mb-2">
-                        <span class="badge bg-success me-2">EMA</span><small class="text-muted">Automática</small>
-                    </div>
-                    <div id="popup-sensors-list" class="mb-3 bg-light p-2 rounded">
-                        <div class="text-center text-muted small"><span class="spinner-border spinner-border-sm"></span> Cargando...</div>
-                    </div>
-                    <div class="d-grid"><a href="${targetUrl}" class="btn btn-sm btn-primary text-white"><i class="bi bi-speedometer2"></i> Dashboard</a></div>
-                `;
-                // ===================================================
-                
-                // --- FETCH PARA TRAER DATOS Y FECHAS ---
-                fetch(`/api/map-status/${encodeURIComponent(ema.id)}`)
-                    .then(res => res.json())
-                    .then(sensores => {
-                        let htmlList = '<ul class="list-unstyled mb-0 small">';
-                        
-                        if (sensores.length === 0) {
-                            htmlList += '<li class="text-muted text-center">Sin sensores.</li>';
-                        } else {
-                            sensores.forEach(s => {
-                                const color = s.estado === 'online' ? 'text-success' : 'text-danger';
-                                const icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
-                                
-                                // Texto de fecha
-                                const fechaTexto = s.fecha ? `Última fecha: ${s.fecha}` : '';
-
-                                htmlList += `
-                                <li class="d-flex justify-content-between align-items-center mb-2 border-bottom border-light pb-1">
-                                    <div class="d-flex flex-column">
-                                        <span class="${color}">
-                                            <i class="bi ${icon}"></i> ${s.nombre}
-                                        </span>
-                                        <small class="text-muted" style="font-size: 0.75em; padding-left: 18px;">
-                                            ${fechaTexto}
-                                        </small>
-                                    </div>
-                                    <span class="fw-bold text-dark">${s.valor}</span>
-                                </li>`;
-                            });
-                        }
-                        
-                        htmlList += '</ul>';
-                        const el = document.getElementById('popup-sensors-list');
-                        if(el) el.innerHTML = htmlList;
-                    }).catch(()=>{});
-                // ---------------------------------------
-
+                popupContent += `<div class="d-flex align-items-center mb-2"><span class="badge bg-success me-2">EMA</span><small class="text-muted">Automática</small></div><div id="popup-sensors-list" class="mb-3 bg-light p-2 rounded"><div class="text-center small">Cargando...</div></div><div class="d-grid"><a href="${urlDashboard}?ema_id=${encodeURIComponent(ema.id)}" class="btn btn-sm btn-primary text-white">Dashboard</a></div>`;
+                fetch(`/api/map-status/${encodeURIComponent(ema.id)}`).then(res => res.json()).then(sensores => {
+                    let htmlList = '<ul class="list-unstyled mb-0 small">';
+                    if (sensores.length === 0) htmlList += '<li class="text-muted text-center">Sin sensores activos.</li>';
+                    else sensores.forEach(s => { 
+                        const color = s.estado === 'online' ? 'text-success' : 'text-danger';
+                        const icon = s.estado === 'online' ? 'bi-check-circle-fill' : 'bi-x-circle-fill';
+                        const fechaTexto = s.fecha ? `Updated: ${s.fecha.split(' ')[1]}` : '';
+                        htmlList += `<li class="d-flex justify-content-between mb-1"><div class="d-flex flex-column"><span class="${color}"><i class="bi ${icon}"></i> ${s.nombre}</span><small class="text-muted" style="font-size:0.7em;padding-left:18px;">${fechaTexto}</small></div><span class="fw-bold">${s.valor}</span></li>`; 
+                    });
+                    htmlList += '</ul>'; document.getElementById('popup-sensors-list').innerHTML = htmlList;
+                }).catch(()=>{});
             } else {
                 let hasData = false;
-                if (ema.last_aforo) {
+                if (ema.last_mp_valor != null) {
                     hasData = true;
                     popupContent += `
-                        <div class="card border-0 bg-primary bg-opacity-10 mb-2 p-2">
-                            <div class="d-flex align-items-center mb-1"><i class="bi bi-water text-primary me-2"></i><small class="fw-bold text-primary">Último Aforo (${ema.last_aforo})</small></div>
-                            <a href="${urlReporteAforos}?ema_id=${ema.db_id}" class="btn btn-primary btn-sm w-100 py-0 small text-white">Descargar</a>
+                        <div class="card border-0 mb-2 p-2 shadow-sm" style="background-color: #f3e5f5; border-left: 4px solid #6f42c1 !important;">
+                            <div class="d-flex align-items-center mb-1"><i class="bi bi-eye-fill me-2" style="color: #6f42c1;"></i><small class="fw-bold" style="color: #6f42c1;">Monitoreo Participativo</small></div>
+                            <div class="d-flex justify-content-between mb-2"><span>${ema.last_mp_valor} m</span><small class="text-muted">${ema.last_mp_fecha || ''}</small></div>
+                            <a href="${urlReporteLecturas}?ema_id=${ema.db_id}" class="btn btn-sm w-100 py-0 text-white" style="background-color: #6f42c1;">Descargar</a>
                         </div>`;
+                }
+                if (ema.last_aforo) {
+                    hasData = true; 
+                    popupContent += `<div class="card border-0 bg-primary bg-opacity-10 mb-2 p-2"><small class="fw-bold text-primary">Aforo: ${ema.last_aforo}</small><a href="${urlReporteAforos}?ema_id=${ema.db_id}" class="btn btn-primary btn-sm w-100 py-0 text-white">Descargar</a></div>`; 
                 }
                 if (ema.last_escala) {
-                    hasData = true;
-                    popupContent += `
-                        <div class="card border-0 bg-info bg-opacity-10 mb-2 p-2">
-                            <div class="d-flex align-items-center mb-1"><i class="bi bi-ruler text-info me-2"></i><small class="fw-bold text-info">Última Lectura De Escala (${ema.last_escala})</small></div>
-                            <a href="${urlReporteEscalas}?ema_id=${ema.db_id}" class="btn btn-info btn-sm w-100 py-0 small text-white">Descargar</a>
-                        </div>`;
+                    hasData = true; 
+                    popupContent += `<div class="card border-0 bg-secondary bg-opacity-10 mb-2 p-2"><small class="fw-bold text-dark">Escala: ${ema.last_escala}</small><a href="${urlReporteEscalas}?ema_id=${ema.db_id}" class="btn btn-dark btn-sm w-100 py-0 text-white">Descargar</a></div>`; 
                 }
-                if (!hasData) popupContent += `<div class="alert alert-secondary small text-center p-2 mb-0">Sin datos recientes</div>`;
+                if (!hasData) popupContent += `<div class="alert alert-secondary small text-center p-2 mb-0">Sin datos</div>`;
             }
             popupContent += `</div>`;
             L.popup({ className: 'popup-custom' }).setLatLng(marker.getLatLng()).setContent(popupContent).openOn(map);
         }
 
-        // Render Map
         function updateMap() {
             markersLayer.clearLayers();
             const selTipo = document.getElementById('filter-tipo').value;
@@ -194,54 +139,55 @@
             const selPartido = document.getElementById('filter-partido').value;
 
             allEmas.forEach(ema => {
-                // Filtros
-                if (selTipo === 'EMA' && !ema.is_ema) return;
-                if (selTipo === 'MANUAL' && ema.is_ema) return;
                 if (selCuenca !== 'todas' && ema.cuenca !== selCuenca) return;
                 if (selPartido !== 'todas' && ema.partido !== selPartido) return;
+                if (!ema.is_ema && ema.last_mp_valor == null && !ema.last_aforo && !ema.last_escala) return;
 
-                // Colores
-                let icon = iconOther; 
+                if (selTipo === 'EMA' && !ema.is_ema) return;
+                if (selTipo === 'AFOROS' && !ema.last_aforo) return;
+                if (selTipo === 'ESCALAS' && !ema.last_escala) return;
+                if (selTipo === 'MP' && (ema.last_mp_valor == null)) return;
 
-                if (ema.is_ema) {
-                    icon = (ema.status === 'online') ? iconOnline : iconOffline;
-                } else {
-                    if (ema.last_escala) {
-                        icon = iconEscala; 
-                    } else if (ema.last_aforo) {
-                        icon = iconAforo;  
-                    }
+                let icon = iconOther;
+                if (selTipo === 'AFOROS') icon = iconAforo;
+                else if (selTipo === 'ESCALAS') icon = iconEscala;
+                else if (selTipo === 'MP') icon = iconMP;
+                else if (selTipo === 'EMA') icon = (ema.status === 'online') ? iconOnline : iconOffline;
+                else {
+                    if (ema.is_ema) icon = (ema.status === 'online') ? iconOnline : iconOffline;
+                    else if (ema.last_mp_valor != null) icon = iconMP;
+                    else if (ema.last_escala) icon = iconEscala;
+                    else if (ema.last_aforo) icon = iconAforo;
                 }
 
                 const marker = L.marker([ema.lat, ema.lon], { icon: icon });
-                marker.on('click', () => { openPopup(marker, ema); });
+                
+                // Tooltip más separado del punto para que no tape el círculo
+                marker.bindTooltip(ema.db_id.toString(), {
+                    permanent: true,
+                    direction: 'top',
+                    className: 'id-tooltip',
+                    offset: [0, -10] 
+                });
+
+                marker.on('click', () => openPopup(marker, ema));
                 markersLayer.addLayer(marker);
             });
+            handleZoomLabels();
         }
 
-        // Populate Filters
         function populateFilters() {
             const cuencas = new Set(), partidos = new Set();
-            allEmas.forEach(e => {
-                if(e.cuenca) cuencas.add(e.cuenca);
-                if(e.partido) partidos.add(e.partido);
-            });
+            allEmas.forEach(e => { if(e.cuenca) cuencas.add(e.cuenca); if(e.partido) partidos.add(e.partido); });
             const fill = (id, set) => {
                 const el = document.getElementById(id);
-                [...set].sort().forEach(val => {
-                    const opt = document.createElement('option');
-                    opt.value = val; opt.textContent = val;
-                    el.appendChild(opt);
-                });
+                [...set].sort().forEach(val => { const opt = document.createElement('option'); opt.value = val; opt.textContent = val; el.appendChild(opt); });
                 el.addEventListener('change', updateMap);
             };
-            fill('filter-cuenca', cuencas);
-            fill('filter-partido', partidos);
+            fill('filter-cuenca', cuencas); fill('filter-partido', partidos);
             document.getElementById('filter-tipo').addEventListener('change', updateMap);
         }
-
-        populateFilters();
-        updateMap();
+        populateFilters(); updateMap();
     });
 </script>
 {% endblock %}

@@ -1,4 +1,3 @@
-# app/models.py
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash
 from geoalchemy2 import Geometry
@@ -28,9 +27,8 @@ class EstacionSimparh(db.Model):
     __tablename__ = 'estaciones_simparh'
     __table_args__ = {"schema": "cuencas"}
 
-    id = db.Column(db.String, primary_key=True) # ID STRING
-    id_proyecto = db.Column(db.String(50))      # ID PROYECTO STRING
-    # ... resto de columnas ...
+    id = db.Column(db.String, primary_key=True)
+    id_proyecto = db.Column(db.String(50))
     proyecto = db.Column(db.String(100))
     ubicacion = db.Column(db.String(150))
     pdo = db.Column(db.String(100)) 
@@ -59,17 +57,12 @@ class MedicionEMA(db.Model):
     fecha = db.Column(db.DateTime, index=True)
     estacion = db.relationship('EstacionSimparh', backref='mediciones', foreign_keys=[id_proyecto])
 
-# --- MODELO AFOROS ---
 class RhAforosDw(db.Model):
     __tablename__ = 'rh_aforos_dw'
     __table_args__ = {'schema': 'cuencas'}
-
     key_aforo = db.Column(db.Integer, primary_key=True)
     id = db.Column(db.Integer) 
-    
-    # CODIGO es String para coincidir con estaciones_simparh.id
     codigo = db.Column(db.String, db.ForeignKey('cuencas.estaciones_simparh.id'))
-    
     fecha_hora = db.Column(db.DateTime)
     aforador = db.Column(db.String)
     instrumento = db.Column(db.String)
@@ -90,22 +83,24 @@ class RhAforosDw(db.Model):
     obs = db.Column(db.String)
     estacion_rel = db.relationship('EstacionSimparh', backref='aforos', foreign_keys=[codigo])
 
-# --- AGREGAR ESTO AL FINAL DE models.py ---
-
 class RhEscalasDw(db.Model):
     __tablename__ = 'rh_escalas_dw'
     __table_args__ = {'schema': 'cuencas'}
-
-    # Definiste key_escala como text, asumimos que es la Primary Key
     key_escala = db.Column(db.String, primary_key=True) 
-    
-    # Relación con la tabla de estaciones
     codigo = db.Column(db.String, db.ForeignKey('cuencas.estaciones_simparh.id'))
-    
-    fecha = db.Column(db.Date)  # O db.DateTime si tiene hora
+    fecha = db.Column(db.Date)
     altura = db.Column(db.Float)
     cota = db.Column(db.Float)
     obs = db.Column(db.String)
-
-    # Relación para acceder a los datos de la estación desde el objeto escala
     estacion_rel = db.relationship('EstacionSimparh', backref='escalas', foreign_keys=[codigo])
+
+class MpLecturasDw(db.Model):
+    __tablename__ = 'mp_lecturas_dw'
+    __table_args__ = {'schema': 'cuencas'}
+    key_unica_mp = db.Column(db.String, primary_key=True) 
+    id_proyecto = db.Column(db.String, db.ForeignKey('cuencas.estaciones_simparh.id'))
+    fecha_hora = db.Column(db.DateTime(timezone=True)) 
+    valor = db.Column(db.Float)
+    cota = db.Column(db.Float)
+    obs = db.Column(db.String)
+    estacion_rel = db.relationship('EstacionSimparh', backref='lecturas', foreign_keys=[id_proyecto])
